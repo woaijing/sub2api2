@@ -1,0 +1,46 @@
+:root {
+  --ui-page: 250 249 245;
+  --ui-surface: 255 255 255;
+  --ui-surface-muted: 245 241 236;
+  --ui-line: 231 222 214;
+  --ui-control-line: 201 189 180;
+  --ui-ink: 41 37 34;
+  --ui-ink-muted: 111 98 90;
+  --ui-brand: 217 119 87;
+  --ui-brand-hover: 184 92 62;
+  --ui-brand-soft: 251 233 226;
+  --ui-brand-strong: 158 73 50;
+  --ui-on-brand: 255 255 255;
+  --ui-action: 184 92 62;
+  --ui-action-hover: 158 73 50;
+  --ui-accent: 233 183 165;
+}
+
+:root.dark {
+  --ui-page: 27 23 21;
+  --ui-surface: 38 32 29;
+  --ui-surface-muted: 50 40 35;
+  --ui-line: 74 58 51;
+  --ui-control-line: 128 104 92;
+  --ui-ink: 255 247 242;
+  --ui-ink-muted: 201 184 175;
+  --ui-brand: 233 154 124;
+  --ui-brand-hover: 240 175 149;
+  --ui-brand-soft: 74 45 37;
+  --ui-brand-strong: 255 195 170;
+  --ui-on-brand: 50 27 21;
+  --ui-action: 233 154 124;
+  --ui-action-hover: 240 175 149;
+  --ui-accent: 242 196 180;
+}
+
+html,
+body {
+  background: rgb(var(--ui-page));
+  color: rgb(var(--ui-ink));
+}
+
+::selection {
+  background: rgb(var(--ui-brand) / 0.2);
+  color: rgb(var(--ui-brand-strong));
+}

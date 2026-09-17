@@ -1,13 +1,13 @@
 <template>
-  <AuthLayout>
+  <AuthLayout experience="register">
     <div class="space-y-6">
       <!-- Title -->
-      <div class="text-center">
-        <h2 class="text-2xl font-bold text-gray-900 dark:text-white">
-          {{ t('auth.createAccount') }}
-        </h2>
-        <p class="mt-2 text-sm text-gray-500 dark:text-dark-400">
-          {{ t('auth.signUpToStart', { siteName }) }}
+      <div class="auth-form-heading">
+        <h1>
+          {{ t('brand.auth.formRegister') }}
+        </h1>
+        <p class="auth-form-description">
+          {{ t('brand.auth.formRegisterDescription') }}
         </p>
       </div>
 
@@ -47,6 +47,7 @@
               :disabled="registrationActionDisabled"
               class="input pl-11"
               :class="{ 'input-error': errors.email }"
+              :aria-invalid="!!errors.email"
               :placeholder="t('auth.emailPlaceholder')"
             />
           </div>
@@ -70,12 +71,15 @@
               :disabled="registrationActionDisabled"
               class="input pl-11 pr-11"
               :class="{ 'input-error': errors.password }"
+              :aria-invalid="!!errors.password"
               :placeholder="t('auth.createPasswordPlaceholder')"
             />
             <button
               type="button"
               :disabled="registrationActionDisabled"
               @click="showPassword = !showPassword"
+              :aria-label="t(showPassword ? 'brand.auth.hidePassword' : 'brand.auth.showPassword')"
+              :aria-pressed="showPassword"
               class="absolute inset-y-0 right-0 flex items-center pr-3.5 text-gray-400 transition-colors hover:text-gray-600 dark:hover:text-dark-300"
             >
               <Icon v-if="showPassword" name="eyeOff" size="md" />

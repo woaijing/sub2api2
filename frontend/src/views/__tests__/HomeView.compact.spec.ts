@@ -108,7 +108,7 @@ describe('HomeView compact mode', () => {
     const wrapper = mountHome(settings)
 
     expect(wrapper.find('[data-testid="compact-home"]').exists()).toBe(false)
-    expect(wrapper.find('.terminal-container').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="brand-home"]').exists()).toBe(true)
   })
 
   it('links unauthenticated visitors to login', () => {
@@ -180,5 +180,21 @@ describe('HomeView compact mode', () => {
     })
 
     expect(modelPlazaDestination(wrapper)).toBeUndefined()
+  })
+
+  it.each([
+    [{ registration_enabled: true }, '/register'],
+    [{ registration_enabled: false }, '/login'],
+    [{ registration_enabled: true, backend_mode_enabled: true }, '/login'],
+  ])('respects registration availability in the main call to action: %j', (settings, destination) => {
+    const wrapper = mountHome(settings)
+    expect(wrapper.get('.hero-actions').findComponent(RouterLinkStub).props('to')).toBe(destination)
+  })
+
+  it('sends signed-in administrators to their workspace instead of registration', () => {
+    authStore.isAuthenticated = true
+    authStore.isAdmin = true
+    const wrapper = mountHome({ registration_enabled: true })
+    expect(wrapper.get('.hero-actions').findComponent(RouterLinkStub).props('to')).toBe('/admin/dashboard')
   })
 })

@@ -307,7 +307,7 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { formatScaled, resolveIntervalPrices } from '@/utils/pricing'
-import { platformAccentColor, platformBadgeLightClass, platformLabel } from '@/utils/platformColors'
+import { platformBadgeLightClass, platformLabel } from '@/utils/platformColors'
 import {
   BILLING_MODE_TOKEN,
   BILLING_MODE_IMAGE,
@@ -318,7 +318,7 @@ import type { UserPricingInterval } from '@/api/channels'
 
 const props = defineProps<{
   models: PlazaModel[]
-  /** 分组平台;实付分区底色随平台着色,未知平台回退品牌青。 */
+  /** 分组平台，用于标注跨平台模型。 */
   platform?: string
   /** 分组默认倍率。 */
   rateMultiplier: number
@@ -338,8 +338,7 @@ const props = defineProps<{
 
 const { t } = useI18n()
 
-/** 实付分区只从平台拿一个主色,浅底/标题/下划线全部由 scoped CSS 用 color-mix 派生。 */
-const accentStyle = computed(() => ({ '--plaza-accent': platformAccentColor(props.platform ?? '') }))
+const accentStyle = { '--plaza-accent': 'rgb(var(--ui-brand))' }
 
 const PER_MILLION = 1_000_000
 
@@ -536,7 +535,7 @@ function trimZero(n: number): string {
 </script>
 
 <style scoped>
-/* 实付分区配色统一从 --plaza-accent(平台主色)派生,新增平台无需扩展样式 */
+/* 实付分区使用 FoxCode 语义色，随浅深主题切换。 */
 .plaza-pricing-table {
   --pz-title: color-mix(in srgb, var(--plaza-accent) 88%, black);
   --pz-bg: color-mix(in srgb, var(--plaza-accent) 7%, transparent);

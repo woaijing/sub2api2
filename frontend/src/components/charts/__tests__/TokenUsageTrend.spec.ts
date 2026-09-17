@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
+import { nextTick } from 'vue'
+import { Line } from 'vue-chartjs'
 
 import TokenUsageTrend from '../TokenUsageTrend.vue'
 
@@ -26,6 +28,36 @@ vi.mock('vue-chartjs', () => ({
 }))
 
 describe('TokenUsageTrend', () => {
+  it('updates chart labels and grid when the theme changes without remounting', async () => {
+    const originalClass = document.documentElement.className
+    document.documentElement.classList.remove('dark')
+    const wrapper = mount(TokenUsageTrend, {
+      props: {
+        trendData: [{
+          date: '2026-09-16', requests: 1, input_tokens: 100, output_tokens: 50,
+          cache_creation_tokens: 0, cache_read_tokens: 0, total_tokens: 150,
+          cost: 0.01, actual_cost: 0.005
+        }]
+      }
+    })
+    try {
+      const chart = wrapper.findComponent(Line)
+      expect(chart.props('options').scales.x.ticks.color).toBe('#6f625a')
+      document.documentElement.classList.add('dark')
+      await flushPromises()
+      await nextTick()
+      expect(chart.props('options').scales.x.ticks.color).toBe('#c9b8af')
+      expect(chart.props('options').scales.x.grid.color).toBe('#4a3a33')
+      document.documentElement.classList.remove('dark')
+      await flushPromises()
+      await nextTick()
+      expect(chart.props('options').scales.x.ticks.color).toBe('#6f625a')
+    } finally {
+      wrapper.unmount()
+      document.documentElement.className = originalClass
+    }
+  })
+
   it('calculates cache hit rate against all prompt tokens', () => {
     const wrapper = mount(TokenUsageTrend, {
       props: {

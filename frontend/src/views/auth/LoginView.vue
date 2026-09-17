@@ -1,13 +1,13 @@
 <template>
-  <AuthLayout>
+  <AuthLayout experience="login">
     <div class="space-y-6">
       <!-- Title -->
-      <div class="text-center">
-        <h2 class="text-2xl font-bold text-gray-900 dark:text-white">
-          {{ t('auth.welcomeBack') }}
-        </h2>
-        <p class="mt-2 text-sm text-gray-500 dark:text-dark-400">
-          {{ t('auth.signInToAccount') }}
+      <div class="auth-form-heading">
+        <h1>
+          {{ t('brand.auth.formLogin') }}
+        </h1>
+        <p class="auth-form-description">
+          {{ t('brand.auth.formLoginDescription') }}
         </p>
       </div>
       <!-- Login Form -->
@@ -31,6 +31,7 @@
               :disabled="authActionDisabled"
               class="input pl-11"
               :class="{ 'input-error': errors.email }"
+              :aria-invalid="!!errors.email"
               :placeholder="t('auth.emailPlaceholder')"
             />
           </div>
@@ -54,11 +55,14 @@
               :disabled="authActionDisabled"
               class="input pl-11 pr-11"
               :class="{ 'input-error': errors.password }"
+              :aria-invalid="!!errors.password"
               :placeholder="t('auth.passwordPlaceholder')"
             />
             <button
               type="button"
               @click="showPassword = !showPassword"
+              :aria-label="t(showPassword ? 'brand.auth.hidePassword' : 'brand.auth.showPassword')"
+              :aria-pressed="showPassword"
               :disabled="authActionDisabled"
               class="absolute inset-y-0 right-0 flex items-center pr-3.5 text-gray-400 transition-colors hover:text-gray-600 dark:hover:text-dark-300"
             >

@@ -1,4 +1,5 @@
 import landing from './landing'
+import brand from './brand'
 import common from './common'
 import dashboard from './dashboard'
 import channelMonitorV2 from './channelMonitorV2'
@@ -10,6 +11,7 @@ import misc from './misc'
 
 export default {
   ...landing,
+  ...brand,
   ...common,
   ...dashboard,
   ...channelMonitorV2,
