@@ -1,0 +1,269 @@
+.console-workspace .console-workspace-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  min-width: 0;
+}
+
+.console-workspace .console-workspace-title h1 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  color: var(--console-text);
+  font-size: 28px;
+  font-weight: 650;
+  line-height: 1.3;
+  letter-spacing: 0;
+}
+
+.console-workspace .console-count {
+  border: 1px solid var(--console-line);
+  border-radius: 4px;
+  padding: 3px 8px;
+  color: var(--console-muted);
+  font: 12px/1.3 ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.console-workspace .console-workspace-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.console-workspace .console-period {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--console-muted);
+  font: 12px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.console-workspace .console-keys {
+  gap: 22px;
+  min-width: 0;
+}
+
+.console-workspace .console-key-filters {
+  border-top: 1px solid var(--console-line);
+  padding-top: 20px;
+}
+
+.console-workspace .console-key-endpoints > div {
+  max-width: 100%;
+  flex-wrap: wrap;
+  background: var(--console-surface);
+  border-color: var(--console-line);
+}
+
+.console-workspace .console-key-endpoints > div > span {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.console-workspace .console-key-endpoints .group\/endpoint {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.console-workspace .console-key-endpoints code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.console-workspace .console-keys .table-scroll-container {
+  border-radius: 6px;
+  background: var(--console-surface);
+  border-color: var(--console-line);
+  box-shadow: none;
+}
+
+.console-workspace .console-keys .table-scroll-container :is(th, td) {
+  padding: 16px;
+  border-color: var(--console-line);
+}
+
+.console-workspace .console-keys .table-scroll-container th {
+  padding-top: 12px;
+  padding-bottom: 12px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--console-muted);
+}
+
+.console-workspace .console-usage-metrics {
+  gap: 0;
+  border-top: 1px solid var(--console-line);
+  border-bottom: 1px solid var(--console-line);
+}
+
+.console-workspace .console-usage-metrics > .card {
+  align-items: flex-start;
+  border: 0;
+  border-right: 1px solid var(--console-line);
+  border-radius: 0;
+  padding: 24px 20px;
+  background: transparent;
+  box-shadow: none;
+  min-width: 0;
+}
+
+.console-workspace .console-usage-metrics > .card:last-child {
+  border-right: 0;
+}
+
+.console-workspace .console-usage-metrics > .card > div:first-child {
+  background: transparent;
+  color: var(--console-muted);
+  padding: 0;
+  padding-top: 3px;
+  flex-shrink: 0;
+}
+
+.console-workspace .console-usage-metrics > .card > div:last-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.console-workspace .console-usage-metrics .text-xl {
+  margin: 6px 0;
+  color: var(--console-text);
+  font-size: 24px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.console-workspace .console-usage-metrics > .card:nth-child(3) .text-xl {
+  color: var(--console-amber);
+}
+
+.console-workspace .console-usage-metrics :is(.text-gray-500, .text-gray-400) {
+  color: var(--console-muted);
+}
+
+.console-workspace .console-range-bar {
+  padding: 4px 0 20px;
+  border-bottom: 1px solid var(--console-line);
+}
+
+.console-workspace .console-usage-chart-grid > * {
+  min-width: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 12px 0 24px;
+}
+
+.console-workspace .console-log-filters {
+  padding: 24px 0;
+  border-top: 1px solid var(--console-line);
+  border-bottom: 1px solid var(--console-line);
+}
+
+.console-workspace .console-log-filters .input-label {
+  color: var(--console-muted);
+  font-size: 12px;
+}
+
+.console-workspace .console-main .console-pagination {
+  border-color: var(--console-line);
+  background: transparent;
+}
+
+.console-workspace .console-main .console-pagination button {
+  border-color: var(--console-line);
+  background: var(--console-surface);
+  color: var(--console-text);
+}
+
+.console-workspace .console-main .console-pagination button[aria-current='page'] {
+  border-color: var(--console-accent);
+  background: var(--console-accent-soft);
+  color: var(--console-accent);
+}
+
+.console-workspace .console-main .console-pagination button:hover:not(:disabled) {
+  background: var(--console-hover);
+}
+
+@media (min-width: 1024px) {
+  .console-workspace .console-usage-chart-grid > :nth-child(2) {
+    border-left: 1px solid var(--console-line);
+    padding-left: 24px;
+  }
+}
+
+@media (max-width: 1023px) {
+  .console-workspace .console-usage-metrics > .card:nth-child(2) {
+    border-right: 0;
+  }
+
+  .console-workspace .console-usage-metrics > .card:nth-child(-n+2) {
+    border-bottom: 1px solid var(--console-line);
+  }
+}
+
+@media (max-width: 639px) {
+  .console-workspace .console-keys [data-field] > span {
+    flex-shrink: 0;
+  }
+
+  .console-workspace .console-keys [data-field='group'] {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .console-workspace .console-keys [data-field='group'] > div {
+    text-align: left;
+  }
+
+  .console-workspace .console-keys [data-field='group'] button {
+    flex-wrap: wrap;
+    max-width: 100%;
+  }
+
+  .console-workspace .console-keys [data-field='group'] button > span {
+    white-space: nowrap;
+  }
+
+  .console-workspace .console-keys [data-field='group'] button > svg {
+    display: none;
+  }
+
+  .console-workspace .console-workspace-title h1 {
+    font-size: 24px;
+  }
+
+  .console-workspace .console-workspace-heading {
+    gap: 16px;
+  }
+
+  .console-workspace .console-workspace-actions {
+    width: 100%;
+  }
+
+  .console-workspace .console-workspace-actions > .btn-primary {
+    flex: 1;
+  }
+
+  .console-workspace .console-usage-metrics > .card {
+    padding: 18px 10px;
+    gap: 6px;
+  }
+
+  .console-workspace .console-usage-metrics .text-xl {
+    font-size: 19px;
+  }
+
+  .console-workspace .console-range-bar > div > div {
+    flex-wrap: wrap;
+    min-width: 0;
+    margin-left: 0;
+  }
+}

@@ -1,15 +1,29 @@
 <template>
   <AppLayout>
-    <div class="space-y-6">
-      <div v-if="loading" class="flex items-center justify-center py-12"><LoadingSpinner /></div>
+    <div class="console-dashboard">
+      <header class="console-masthead">
+        <div class="console-identity">
+          <span class="console-mark" aria-hidden="true"><Icon name="chart" size="lg" /></span>
+          <div class="console-heading">
+            <h1>{{ appStore.siteName }}</h1>
+            <span class="console-page-label">{{ t('dashboard.title') }}</span>
+          </div>
+        </div>
+      </header>
+      <div v-if="loading" class="console-loading"><LoadingSpinner /></div>
       <template v-else-if="stats">
+        <UserDashboardQuickActions />
         <UserDashboardStats :stats="stats" :balance="user?.balance || 0" :is-simple="authStore.isSimpleMode" :platform-quotas="platformQuotas" />
         <UserDashboardCharts v-model:startDate="startDate" v-model:endDate="endDate" v-model:granularity="granularity" :loading="loadingCharts" :trend="trendData" :models="modelStats" @dateRangeChange="loadCharts" @granularityChange="loadCharts" @refresh="refreshAll" />
-        <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
-          <div class="lg:col-span-2"><UserDashboardRecentUsage :data="recentUsage" :loading="loadingUsage" /></div>
-          <div class="lg:col-span-1"><UserDashboardQuickActions /></div>
-        </div>
+        <UserDashboardRecentUsage :data="recentUsage" :loading="loadingUsage" />
       </template>
+      <div v-else class="console-error" role="alert">
+        <Icon name="exclamationCircle" size="md" />
+        <span>{{ t('dashboard.loadFailed') }}</span>
+        <button class="btn btn-secondary" @click="refreshAll">
+          <Icon name="refresh" size="sm" class="mr-2" />{{ t('common.refresh') }}
+        </button>
+      </div>
     </div>
   </AppLayout>
 </template>
@@ -20,9 +34,14 @@ import AppLayout from '@/components/layout/AppLayout.vue'; import LoadingSpinner
 import UserDashboardStats from '@/components/user/dashboard/UserDashboardStats.vue'; import UserDashboardCharts from '@/components/user/dashboard/UserDashboardCharts.vue'
 import UserDashboardRecentUsage from '@/components/user/dashboard/UserDashboardRecentUsage.vue'; import UserDashboardQuickActions from '@/components/user/dashboard/UserDashboardQuickActions.vue'
 import type { UsageLog, TrendDataPoint, ModelStat, PlatformQuotaItem } from '@/types'
+import { useAppStore } from '@/stores/app'
+import { useI18n } from 'vue-i18n'
+import Icon from '@/components/icons/Icon.vue'
 import { getMyPlatformQuotas } from '@/api/user'
 import { formatDateLocalInput } from '@/utils/format'
 
+const appStore = useAppStore()
+const { t } = useI18n()
 const authStore = useAuthStore(); const user = computed(() => authStore.user)
 const stats = ref<UserStatsType | null>(null); const loading = ref(false); const loadingUsage = ref(false); const loadingCharts = ref(false)
 const trendData = ref<TrendDataPoint[]>([]); const modelStats = ref<ModelStat[]>([]); const recentUsage = ref<UsageLog[]>([])
@@ -38,3 +57,50 @@ const refreshAll = () => { loadStats(); loadCharts(); loadRecent(); loadPlatform
 
 onMounted(() => { refreshAll() })
 </script>
+
+<style scoped>
+.console-dashboard {
+  min-width: 0;
+  color: var(--console-text);
+  background: var(--console-bg);
+  letter-spacing: 0;
+}
+.console-masthead {
+  padding: 0 0 18px;
+  border-bottom: 1px solid var(--console-line);
+}
+.console-identity, .console-heading { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.console-mark {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  flex: 0 0 auto;
+  color: var(--console-accent);
+  border: 1px solid var(--console-line);
+  border-radius: 6px;
+  background: var(--console-surface);
+  box-shadow: inset 0 0 12px color-mix(in srgb, var(--console-accent) 8%, transparent);
+}
+.console-heading h1 {
+  margin: 0;
+  font-size: 28px;
+  line-height: 1.2;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+.console-page-label {
+  padding-left: 14px;
+  border-left: 1px solid var(--console-line);
+  color: var(--console-muted);
+  font-size: 13px;
+  flex-shrink: 0;
+}
+.console-loading { display: flex; justify-content: center; padding: 64px 0; }
+.console-error { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 32px 0; color: var(--console-muted); }
+@media (max-width: 480px) {
+  .console-heading { flex-wrap: wrap; gap: 4px 12px; }
+  .console-heading h1 { font-size: 24px; }
+  .console-page-label { border: 0; padding: 0; }
+}
+</style>

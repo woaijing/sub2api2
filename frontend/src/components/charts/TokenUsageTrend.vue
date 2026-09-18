@@ -54,6 +54,7 @@ const { t } = useI18n()
 const props = defineProps<{
   trendData: TrendDataPoint[]
   loading?: boolean
+  animationDuration?: number
 }>()
 
 const chartTheme = useChartTheme()
@@ -123,6 +124,7 @@ const chartData = computed(() => {
 })
 
 const lineOptions = computed(() => ({
+  ...(props.animationDuration === undefined ? {} : { animation: { duration: props.animationDuration } }),
   responsive: true,
   maintainAspectRatio: false,
   interaction: {

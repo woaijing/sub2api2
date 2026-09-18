@@ -1,6 +1,11 @@
-.PHONY: build build-backend build-frontend test test-backend test-frontend test-frontend-critical
+.PHONY: build build-backend build-frontend test test-backend test-frontend test-frontend-critical test-frontend-preview
 
 FRONTEND_CRITICAL_VITEST := \
+	src/components/layout/__tests__/ConsoleWorkspace.spec.ts \
+	src/components/user/dashboard/__tests__/console-dashboard.spec.ts \
+	src/components/charts/__tests__/TokenUsageTrend.spec.ts \
+	src/views/user/__tests__/KeysView.spec.ts \
+	src/views/user/__tests__/UsageView.spec.ts \
 	src/i18n/__tests__/localeKeyCompleteness.spec.ts \
 	src/api/__tests__/client.spec.ts \
 	src/api/__tests__/tokenRefresh.spec.ts \
@@ -40,6 +45,11 @@ test-frontend:
 	@pnpm --dir frontend run lint:check
 	@pnpm --dir frontend run typecheck
 	@$(MAKE) test-frontend-critical
+	@$(MAKE) test-frontend-preview
 
 test-frontend-critical:
 	@pnpm --dir frontend exec vitest run $(FRONTEND_CRITICAL_VITEST)
+
+test-frontend-preview:
+	@pnpm --dir frontend exec tsc --noEmit -p dev/tsconfig.json
+	@pnpm --dir frontend exec vitest run --config dev/vitest.config.ts

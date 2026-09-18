@@ -140,3 +140,24 @@ Vite 产物位于 `backend/internal/web/dist`。要部署这份定制界面，�
 - 注册页：<http://127.0.0.1:3001/register>
 
 运行 `python analysis/public-pages-visual-check.py` 可重新生成 `output/public-pages-qa/` 内的截图和报告。普通预览服务仅返回公开配置和示例模型列表，不提供真实登录/注册服务。
+
+## 用户控制台改版（2026-09-18）
+
+仪表盘、API 密钥和使用记录页采用更紧凑的统计与工作区布局，增加初次加载失败重试、手机筛选/菜单适配和减少动态效果支持。
+所有新增配色来自现有 FoxCode 变量；按钮使用 `--ui-action`，图表保留品牌首色与分类色。
+原提供商选择、智能路由、平台配额、近 30 天统计、批量图像权限及导航功能继续保留。
+
+维护入口为 `frontend/src/styles/console-shell.css`、`console-workspace.css`、
+`frontend/src/composables/useConsoleWorkspace.ts` 和 `frontend/src/components/user/dashboard/`。
+样式由路由限定到 `/dashboard`、`/keys`、`/usage`；切换到其他页面后不继续覆盖其布局。
+手机日期弹层输入框纵向排列，避免窄屏时右侧日期被挤住。
+
+新增独立预览：在 `frontend` 下运行 `corepack pnpm@9.15.5 run dev:console`，打开
+<http://127.0.0.1:4317/dashboard>。默认端口 4317，可用 `--port` 指定其他端口。
+该预览提供三个用户控制台页面的模拟数据和演示密钥操作，不连接真实后端，重启清空操作结果。
+生产构建禁止使用此模式，预览代码与生产 Vite 配置隔离。
+
+本轮通过全量 ESLint、应用/预览 TypeScript 检查、生产构建及 341 项相关测试。
+48 组浏览器页面检查及三种宽度的交互检查通过；截图和报告见本机 `output/console-qa/`。
+来源、范围及验证细节记录于 `UPSTREAM_UPDATES.md`。前文公共页/模型广场预览脚本是此前验证记录，
+当前工作区已删除这些脚本；本轮新增控制台预览不依赖它们。

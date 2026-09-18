@@ -28,6 +28,27 @@ vi.mock('vue-chartjs', () => ({
 }))
 
 describe('TokenUsageTrend', () => {
+  it('preserves default animation and accepts reduced-motion overrides', async () => {
+    const wrapper = mount(TokenUsageTrend, {
+      props: {
+        trendData: [{
+          date: '2026-09-18', requests: 1, input_tokens: 100, output_tokens: 50,
+          cache_creation_tokens: 20, cache_read_tokens: 300, cost: 0.02, actual_cost: 0.01
+        }]
+      }
+    })
+    try {
+      const chart = wrapper.getComponent(Line)
+      expect(chart.props('options')).not.toHaveProperty('animation')
+      await wrapper.setProps({ animationDuration: 180 })
+      expect(chart.props('options').animation.duration).toBe(180)
+      await wrapper.setProps({ animationDuration: 0 })
+      expect(chart.props('options').animation.duration).toBe(0)
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
   it('updates chart labels and grid when the theme changes without remounting', async () => {
     const originalClass = document.documentElement.className
     document.documentElement.classList.remove('dark')

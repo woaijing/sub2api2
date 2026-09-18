@@ -156,6 +156,7 @@ const props = withDefaults(
     upstreamEndpointStats?: EndpointStat[]
     endpointPathStats?: EndpointStat[]
     loading?: boolean
+    animationDuration?: number
     title?: string
     metric?: DistributionMetric
     source?: EndpointSource
@@ -242,6 +243,7 @@ const chartData = computed(() => {
 })
 
 const doughnutOptions = computed(() => ({
+  ...(props.animationDuration === undefined ? {} : { animation: { duration: props.animationDuration } }),
   responsive: true,
   maintainAspectRatio: false,
   plugins: {

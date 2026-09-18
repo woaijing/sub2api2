@@ -1,0 +1,616 @@
+/* Tokens also reach body-level dialogs, only while a FoxCode page is mounted. */
+:is(.console-workspace, body:has(.console-workspace) > .modal-overlay, body:has(.console-workspace) > .dialog-overlay, body:has(.console-workspace) > .select-dropdown-portal) {
+  --console-bg: rgb(var(--ui-page));
+  --console-surface: rgb(var(--ui-surface));
+  --console-line: rgb(var(--ui-line));
+  --console-text: rgb(var(--ui-ink));
+  --console-muted: rgb(var(--ui-ink-muted));
+  --console-accent: rgb(var(--ui-brand-strong));
+  --console-accent-soft: rgb(var(--ui-brand-soft));
+  --console-action: rgb(var(--ui-action));
+  --console-action-hover: rgb(var(--ui-action-hover));
+  --console-on-accent: rgb(var(--ui-on-brand));
+  --console-hover: rgb(var(--ui-surface-muted));
+  --console-control-line: rgb(var(--ui-control-line));
+  --console-amber: #a86610;
+  --console-danger: #dc4545;
+  --console-shadow: 0 12px 32px rgb(var(--ui-ink) / 0.12);
+  letter-spacing: 0;
+  color: var(--console-text);
+}
+
+.dark :is(.console-workspace, body:has(.console-workspace) > .modal-overlay, body:has(.console-workspace) > .dialog-overlay, body:has(.console-workspace) > .select-dropdown-portal) {
+  --console-amber: #eeb766;
+  --console-danger: #fb7185;
+  --console-shadow: 0 12px 32px #00000033;
+}
+
+.console-workspace {
+  min-height: 100dvh;
+  background: var(--console-bg);
+}
+
+.console-workspace .console-frame {
+  min-width: 0;
+  transition: none;
+}
+
+.console-workspace .console-main {
+  width: 100%;
+  max-width: 1600px;
+  margin-inline: auto;
+}
+
+.console-workspace .console-header {
+  background: var(--console-surface);
+  border-color: var(--console-line);
+  backdrop-filter: none;
+}
+
+.console-workspace .header-inner {
+  padding-inline: 16px;
+}
+
+.console-workspace .header-location {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.console-workspace .header-actions {
+  flex-shrink: 0;
+  gap: 4px;
+}
+
+.console-workspace .console-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--console-muted);
+}
+
+.console-workspace .console-breadcrumb > svg {
+  flex: 0 0 12px;
+}
+
+.console-workspace .console-breadcrumb > :is(a, span) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.console-workspace .console-breadcrumb-home {
+  max-width: 160px;
+}
+
+.console-workspace .console-breadcrumb > span {
+  color: var(--console-text);
+  font-weight: 500;
+}
+
+.console-workspace .console-breadcrumb-home:hover {
+  color: var(--console-accent);
+}
+
+.console-workspace :is(.header-shortcut, .header-user-button, .header-locale > button, .header-subscriptions > button) {
+  min-height: 36px;
+  border-radius: 6px;
+  color: var(--console-muted);
+  background: transparent;
+  transition: color 120ms ease, background-color 120ms ease;
+}
+
+.console-workspace :is(.header-shortcut, .header-user-button, .header-locale > button, .header-subscriptions > button):hover {
+  color: var(--console-text);
+  background: var(--console-hover);
+}
+
+.console-workspace .header-subscriptions > button > svg,
+.console-workspace .header-subscriptions > button > div > span {
+  color: var(--console-muted);
+}
+
+.console-workspace .header-identity {
+  max-width: 144px;
+}
+
+.console-workspace .header-identity > div {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--console-text);
+}
+
+.console-workspace .header-identity > div + div {
+  color: var(--console-muted);
+}
+
+.console-workspace .header-avatar {
+  flex-shrink: 0;
+  border: 1px solid var(--console-line);
+  border-radius: 6px;
+  background: var(--console-accent-soft);
+  color: var(--console-accent);
+  box-shadow: none;
+}
+
+.console-workspace .header-balance {
+  min-height: 36px;
+  border: 1px solid var(--console-line);
+  border-radius: 6px;
+  background: var(--console-bg);
+  font-variant-numeric: tabular-nums;
+}
+
+.console-workspace .header-balance > svg {
+  color: var(--console-muted);
+}
+
+.console-workspace .header-balance-value {
+  white-space: nowrap;
+  color: var(--console-text);
+}
+
+.console-workspace .header-balance-frozen {
+  border-radius: 4px;
+  background: var(--console-surface);
+  color: var(--console-amber);
+  white-space: nowrap;
+}
+
+.console-workspace .header-balance-detail {
+  max-width: calc(100dvw - 32px);
+  border-color: var(--console-line);
+  background: var(--console-surface);
+  box-shadow: var(--console-shadow);
+}
+
+.console-workspace .header-balance:focus-visible .header-balance-detail {
+  display: block;
+}
+
+.console-workspace .header-balance-detail span {
+  color: var(--console-text);
+}
+
+.console-workspace .header-balance-detail span:first-child {
+  color: var(--console-muted);
+}
+
+.console-workspace .header-balance-detail > div:nth-child(2) > span:last-child {
+  color: var(--console-amber);
+}
+
+.console-workspace .console-sidebar {
+  background: var(--console-surface);
+  border-color: var(--console-line);
+  transition-property: transform;
+  transition-duration: 180ms;
+}
+
+.console-workspace .console-sidebar :is(.sidebar-header, .sidebar-footer) {
+  border-color: var(--console-line);
+}
+
+.console-workspace .console-sidebar .sidebar-logo {
+  border-radius: 6px;
+  box-shadow: none;
+}
+
+.console-workspace .console-sidebar .sidebar-brand-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--console-text);
+}
+
+.console-workspace .console-sidebar .sidebar-brand-title:hover {
+  color: var(--console-accent);
+}
+
+.console-workspace .console-sidebar .sidebar-nav {
+  padding-block: 20px;
+}
+
+.console-workspace .console-sidebar .sidebar-link {
+  position: relative;
+  min-height: 40px;
+  border-radius: 6px;
+  color: var(--console-muted);
+  transition: color 120ms ease, background-color 120ms ease;
+}
+
+.console-workspace .console-sidebar .sidebar-link:hover {
+  background: var(--console-hover);
+  color: var(--console-text);
+  box-shadow: inset 1px 0 color-mix(in srgb, var(--console-accent) 42%, transparent);
+}
+
+.console-workspace .console-sidebar .sidebar-link-active {
+  background: var(--console-accent-soft);
+  color: var(--console-accent);
+  box-shadow: inset 1px 0 var(--console-accent), inset 8px 0 16px -16px var(--console-accent);
+}
+
+.console-workspace .console-sidebar .sidebar-link-active::before {
+  position: absolute;
+  inset-block: 10px;
+  left: 0;
+  width: 2px;
+  background: var(--console-accent);
+  content: '';
+}
+
+.console-workspace .console-sidebar .sidebar-section-title {
+  color: var(--console-muted);
+  letter-spacing: 0;
+}
+
+.console-workspace .console-sidebar .sidebar-section-title::after {
+  background: var(--console-line);
+}
+
+.console-workspace .console-sidebar :is(.sidebar-label, .sidebar-brand) {
+  transition: opacity 120ms ease;
+}
+
+/* Explicit component classes avoid recoloring business/status utility classes. */
+:is(.console-workspace, body:has(.console-workspace) > .modal-overlay, body:has(.console-workspace) > .dialog-overlay) :is(.btn, .btn-icon, .input, .dropdown) {
+  border-radius: 6px;
+  letter-spacing: 0;
+}
+
+:is(.console-workspace, body:has(.console-workspace) > .modal-overlay, body:has(.console-workspace) > .dialog-overlay) .btn {
+  box-shadow: none;
+  transition: color 120ms ease, background-color 120ms ease, border-color 120ms ease;
+}
+
+:is(.console-workspace, body:has(.console-workspace) > .modal-overlay, body:has(.console-workspace) > .dialog-overlay) .btn-primary {
+  border: 1px solid transparent;
+  color: var(--console-on-accent);
+  background: var(--console-action);
+}
+
+:is(.console-workspace, body:has(.console-workspace) > .modal-overlay, body:has(.console-workspace) > .dialog-overlay) .btn-primary:hover:not(:disabled) {
+  background: var(--console-action-hover);
+}
+
+:is(.console-workspace, body:has(.console-workspace) > .modal-overlay, body:has(.console-workspace) > .dialog-overlay) .btn-secondary {
+  background: var(--console-surface);
+  border: 1px solid var(--console-control-line);
+  color: var(--console-text);
+}
+
+:is(.console-workspace, body:has(.console-workspace) > .modal-overlay, body:has(.console-workspace) > .dialog-overlay) .btn-ghost {
+  color: var(--console-muted);
+  background: transparent;
+}
+
+:is(.console-workspace, body:has(.console-workspace) > .modal-overlay, body:has(.console-workspace) > .dialog-overlay) :is(.btn-secondary, .btn-ghost):hover:not(:disabled) {
+  background: var(--console-hover);
+  color: var(--console-text);
+}
+
+:is(.console-workspace, body:has(.console-workspace) > .modal-overlay, body:has(.console-workspace) > .dialog-overlay) .input {
+  border-color: var(--console-control-line);
+  background: var(--console-surface);
+  color: var(--console-text);
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+:is(.console-workspace, body:has(.console-workspace) > .modal-overlay, body:has(.console-workspace) > .dialog-overlay) .input::placeholder {
+  color: var(--console-muted);
+}
+
+:is(.console-workspace, body:has(.console-workspace) > .modal-overlay, body:has(.console-workspace) > .dialog-overlay) .input:focus {
+  border-color: var(--console-accent);
+  --tw-ring-color: var(--console-accent);
+}
+
+:is(.console-workspace, body:has(.console-workspace) > .modal-overlay, body:has(.console-workspace) > .dialog-overlay) .input-error {
+  border-color: #d34040;
+}
+
+:is(.console-workspace, body:has(.console-workspace) > .modal-overlay, body:has(.console-workspace) > .dialog-overlay) :is(.input-label, .modal-title, .empty-state-title) {
+  color: var(--console-text);
+}
+
+:is(.console-workspace, body:has(.console-workspace) > .modal-overlay, body:has(.console-workspace) > .dialog-overlay) :is(.input-hint, .empty-state-description) {
+  color: var(--console-muted);
+}
+
+:is(.console-workspace, body:has(.console-workspace) > .modal-overlay, body:has(.console-workspace) > .dialog-overlay) :is(button, a, input, select, textarea, [tabindex='0']):focus-visible {
+  outline: 2px solid var(--console-accent);
+  outline-offset: 3px;
+}
+
+.console-workspace :is(.card, .glass-card, .card-glass, .table-container) {
+  border-radius: 8px;
+  border-color: var(--console-line);
+  background: var(--console-surface);
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.console-workspace .card-hover:hover {
+  transform: none;
+  border-color: var(--console-control-line);
+  box-shadow: none;
+}
+
+.console-workspace :is(.page-title, .stat-value) {
+  color: var(--console-text);
+  letter-spacing: 0;
+}
+
+.console-workspace :is(.page-description, .stat-label) {
+  color: var(--console-muted);
+}
+
+.console-workspace .stat-value {
+  font-variant-numeric: tabular-nums;
+}
+
+.console-workspace .console-main .table-page-layout .table-scroll-container {
+  border-inline: 0;
+  border-radius: 0;
+  background: var(--console-surface);
+  border-color: var(--console-line);
+  box-shadow: none;
+}
+
+.console-workspace :is(.table, .table-wrapper table) {
+  color: var(--console-text);
+}
+
+.console-workspace :is(.table th, .table-header, .table-header th, .table-scroll-container thead) {
+  background: var(--console-bg);
+  color: var(--console-muted);
+  border-color: var(--console-line);
+  backdrop-filter: none;
+}
+
+.console-workspace :is(.table td, .table-body, .table-body td) {
+  color: var(--console-text);
+  border-color: var(--console-line);
+}
+
+.console-workspace .table-body {
+  background: var(--console-surface);
+}
+
+/* These cells have component-scoped backgrounds of their own. */
+.console-workspace .console-main .table-wrapper thead.table-header,
+.console-workspace .console-main .table-wrapper .table-header .sticky-header-cell {
+  background: var(--console-bg);
+  color: var(--console-muted);
+  letter-spacing: 0;
+}
+
+.console-workspace .console-main .table-wrapper tbody .sticky-col {
+  background: var(--console-surface);
+}
+
+.console-workspace .console-main .table-wrapper tbody tr:hover .sticky-col {
+  background: var(--console-hover);
+}
+
+.console-workspace .console-main .table-wrapper tbody tr:has(input[data-test='select-row']:checked),
+.console-workspace .console-main .table-wrapper tbody tr:has(input[data-test='select-row']:checked) .sticky-col {
+  background: var(--console-accent-soft);
+}
+
+/* DataTable's mobile root has no component class; anchor to its layout slot. */
+.console-workspace .table-scroll-container > .space-y-3 > .rounded-lg {
+  background: var(--console-surface);
+  border-color: var(--console-line);
+}
+
+.console-workspace .table-scroll-container > .space-y-3 > .rounded-lg:has(input[data-test='select-row']:checked) {
+  background: var(--console-accent-soft);
+  border-color: var(--console-accent);
+}
+
+.console-workspace .table-scroll-container [data-field] > span {
+  color: var(--console-muted);
+  letter-spacing: 0;
+}
+
+.console-workspace .table-scroll-container input[type='checkbox'] {
+  accent-color: var(--console-accent);
+}
+
+.console-workspace :is(.table tbody tr, .table-body tr):hover {
+  background: var(--console-hover);
+}
+
+.console-workspace :is(.divider, .card-header, .card-footer) {
+  border-color: var(--console-line);
+}
+
+.console-workspace .divider {
+  background: var(--console-line);
+}
+
+:is(.console-workspace, body:has(.console-workspace) > .modal-overlay, body:has(.console-workspace) > .dialog-overlay) :is(.dropdown, .modal-content, .dialog-container) {
+  background: var(--console-surface);
+  border: 1px solid var(--console-line);
+  border-radius: 8px;
+  color: var(--console-text);
+  box-shadow: var(--console-shadow);
+}
+
+:is(.console-workspace, body:has(.console-workspace) > .modal-overlay, body:has(.console-workspace) > .dialog-overlay) .dropdown-item {
+  color: var(--console-text);
+}
+
+:is(.console-workspace, body:has(.console-workspace) > .modal-overlay, body:has(.console-workspace) > .dialog-overlay) .dropdown-item:hover {
+  background: var(--console-hover);
+}
+
+:is(.console-workspace, body:has(.console-workspace) > .modal-overlay, body:has(.console-workspace) > .dialog-overlay) :is(.modal-header, .modal-footer, .dialog-header, .dialog-footer) {
+  border-color: var(--console-line);
+  background: var(--console-surface);
+}
+
+:is(.console-workspace .modal-overlay, body:has(.console-workspace) > .modal-overlay, .console-workspace .dialog-overlay, body:has(.console-workspace) > .dialog-overlay) {
+  background: #11131580;
+  backdrop-filter: none;
+}
+
+:is(.console-workspace, body:has(.console-workspace) > .modal-overlay) .select-trigger {
+  border-radius: 6px;
+  border-color: var(--console-control-line);
+  background: var(--console-surface);
+  color: var(--console-text);
+}
+
+:is(.console-workspace, body:has(.console-workspace) > .modal-overlay) :is(.select-trigger:focus, .select-trigger-open) {
+  border-color: var(--console-accent);
+  --tw-ring-color: var(--console-accent);
+}
+
+:is(.console-workspace, body:has(.console-workspace) > .modal-overlay) .select-trigger-error {
+  border-color: #d34040;
+}
+
+body:has(.console-workspace) > .select-dropdown-portal {
+  border-radius: 6px;
+  background: var(--console-surface);
+  border-color: var(--console-line);
+  box-shadow: var(--console-shadow);
+}
+
+body:has(.console-workspace) > .select-dropdown-portal :is(.select-option, .select-search-input) {
+  color: var(--console-text);
+}
+
+body:has(.console-workspace) > .select-dropdown-portal :is(.select-search, .select-option-group) {
+  border-color: var(--console-line);
+  background: var(--console-bg);
+  color: var(--console-muted);
+  letter-spacing: 0;
+}
+
+body:has(.console-workspace) > .select-dropdown-portal :is(.select-option:hover, .select-option-focused) {
+  background: var(--console-hover);
+}
+
+body:has(.console-workspace) > .select-dropdown-portal .select-option-selected {
+  background: var(--console-accent-soft);
+  color: var(--console-accent);
+}
+
+.console-workspace .header-logout.dropdown-item {
+  color: #d34040;
+}
+
+html .console-workspace .console-main :is(.date-picker-trigger, .date-picker-dropdown, .date-picker-input) {
+  border-color: var(--console-control-line);
+  border-radius: 6px;
+  background: var(--console-surface);
+  color: var(--console-text);
+}
+
+.console-workspace .console-main :is(.date-picker-icon, .date-picker-chevron, .date-picker-label) {
+  color: var(--console-muted);
+}
+
+.console-workspace .console-main .date-picker-preset {
+  color: var(--console-text);
+}
+
+.console-workspace .console-main .date-picker-preset-active {
+  color: var(--console-accent);
+  background: var(--console-accent-soft);
+}
+
+.console-workspace .console-main .date-picker-apply {
+  background: var(--console-action);
+  color: var(--console-on-accent);
+}
+
+@media (min-width: 768px) {
+  .console-workspace .header-inner {
+    padding-inline: 24px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .console-workspace .header-inner {
+    padding-inline: 32px;
+  }
+}
+
+@media (max-width: 1279px) {
+  .console-workspace :is(.header-shortcut > span, .header-identity) {
+    display: none;
+  }
+
+  .console-workspace .header-balance-frozen {
+    max-width: 100px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+
+@media (max-width: 639px) {
+  .console-workspace .console-main .date-picker-dropdown {
+    min-width: 0;
+    width: min(320px, calc(100vw - 32px));
+    max-height: min(440px, calc(100dvh - 100px));
+    overflow: auto;
+  }
+
+  .console-workspace :is(.console-date-control, .console-range-bar > div > div:first-child) {
+    position: relative;
+    width: 100%;
+  }
+
+  .console-workspace :is(.console-date-control, .console-range-bar > div > div:first-child) > .relative {
+    position: static;
+  }
+
+  .console-workspace .console-main .date-picker-custom {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .console-workspace .console-main .date-picker-field {
+    min-width: 0;
+  }
+
+  .console-workspace .console-main .date-picker-separator {
+    display: none;
+  }
+
+  .console-workspace .console-breadcrumb-home,
+  .console-workspace .console-breadcrumb > svg {
+    display: none;
+  }
+
+  .console-workspace .console-sidebar .sidebar-link,
+  .console-workspace .header-actions button,
+  .console-workspace .header-location > button {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  .console-workspace .header-inner {
+    padding-inline: 8px;
+  }
+
+  .console-workspace .header-user-button {
+    gap: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :is(.console-workspace, body:has(.console-workspace) > .modal-overlay, body:has(.console-workspace) > .dialog-overlay, body:has(.console-workspace) > .select-dropdown-portal) *,
+  :is(.console-workspace, body:has(.console-workspace) > .modal-overlay, body:has(.console-workspace) > .dialog-overlay, body:has(.console-workspace) > .select-dropdown-portal) {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}

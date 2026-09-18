@@ -271,6 +271,7 @@ const props = withDefaults(defineProps<{
   rankingTotalRequests?: number
   rankingTotalTokens?: number
   loading?: boolean
+  animationDuration?: number
   metric?: DistributionMetric
   showSourceToggle?: boolean
   showMetricToggle?: boolean
@@ -424,6 +425,7 @@ const rankingDisplayItems = computed<RankingDisplayItem[]>(() => {
 })
 
 const doughnutOptions = computed(() => ({
+  ...(props.animationDuration === undefined ? {} : { animation: { duration: props.animationDuration } }),
   responsive: true,
   maintainAspectRatio: false,
   plugins: {
@@ -447,6 +449,7 @@ const doughnutOptions = computed(() => ({
 }))
 
 const rankingDoughnutOptions = computed(() => ({
+  ...(props.animationDuration === undefined ? {} : { animation: { duration: props.animationDuration } }),
   responsive: true,
   maintainAspectRatio: false,
   plugins: {
