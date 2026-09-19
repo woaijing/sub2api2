@@ -2,7 +2,7 @@
   <section class="console-recent">
     <header class="console-recent-heading">
       <h2>{{ t('dashboard.recentUsage') }}</h2>
-      <span>{{ t('dashboard.last7Days') }}</span>
+      <span v-if="startDate && endDate">{{ startDate }} / {{ endDate }}</span>
     </header>
     <div v-if="loading" class="console-recent-loading"><LoadingSpinner size="lg" /></div>
     <div v-else-if="data.length === 0" class="console-recent-empty">
@@ -19,7 +19,7 @@
             </div>
           </div>
           <div class="console-request-tokens">
-            <span>{{ (log.input_tokens + log.output_tokens).toLocaleString() }}</span>
+            <span>{{ (log.input_tokens + log.output_tokens + (log.cache_read_tokens || 0) + (log.cache_creation_tokens || 0)).toLocaleString() }}</span>
             <span class="console-request-label">tokens</span>
           </div>
           <div class="console-request-cost">
@@ -44,6 +44,8 @@ import type { UsageLog } from '@/types'
 defineProps<{
   data: UsageLog[]
   loading: boolean
+  startDate?: string
+  endDate?: string
 }>()
 const { t } = useI18n()
 const formatCost = (c: number) => c.toFixed(4)

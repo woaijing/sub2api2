@@ -1,17 +1,27 @@
 <template>
   <AppLayout>
-    <div :class="['mx-auto w-full space-y-6', activeTab === 'rechargeCenter' ? 'max-w-[1440px]' : 'max-w-4xl']">
+    <div :class="['console-payment mx-auto w-full', activeTab === 'rechargeCenter' ? 'max-w-[1440px]' : 'max-w-5xl']">
       <div v-if="loading" class="flex items-center justify-center py-20">
         <div class="h-8 w-8 animate-spin rounded-full border-4 border-primary-500 border-t-transparent"></div>
       </div>
       <template v-else>
+        <header v-if="paymentPhase === 'select' && !selectedPlan" class="console-payment-heading">
+          <div class="console-payment-heading__icon" aria-hidden="true">
+            <Icon name="creditCard" size="lg" />
+          </div>
+          <div class="min-w-0">
+            <h1>{{ t('nav.buySubscription') }}</h1>
+          </div>
+          <RouterLink to="/orders" class="console-payment-orders btn btn-secondary">
+            <Icon name="clock" size="sm" />{{ t('payment.orders.title') }}
+          </RouterLink>
+        </header>
         <!-- Tab Switcher (hide during payment and subscription confirm) -->
-        <div v-if="tabs.length > 1 && paymentPhase === 'select' && !selectedPlan" class="flex space-x-1 rounded-xl bg-gray-100 p-1 dark:bg-dark-800">
-          <button v-for="tab in tabs" :key="tab.key"
-            class="flex-1 rounded-lg px-4 py-2.5 text-sm font-medium transition-all"
-            :class="activeTab === tab.key ? 'bg-white text-gray-900 shadow dark:bg-dark-700 dark:text-white' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'"
-            @click="activeTab = tab.key">{{ tab.label }}</button>
-        </div>
+        <ConsoleTabs v-if="tabs.length > 1 && paymentPhase === 'select' && !selectedPlan"
+          id="payment-view" class="console-payment-tabs" :label="t('payment.title')"
+          :model-value="activeTab" :items="tabs"
+          @update:model-value="activeTab = $event === 'rechargeCenter' ? 'rechargeCenter' : 'recharge'"
+        />
         <!-- Payment in progress (shared by recharge and subscription) -->
         <template v-if="paymentPhase === 'paying'">
           <PaymentStatusPanel
@@ -34,69 +44,84 @@
         <!-- Tab content (select phase) -->
         <template v-else>
           <!-- Top-up Tab -->
-          <template v-if="activeTab === 'recharge'">
-            <!-- Recharge Account Card -->
-            <div class="card p-5">
-              <p class="text-xs font-medium text-gray-400 dark:text-gray-500">{{ t('payment.rechargeAccount') }}</p>
-              <p class="mt-1 text-base font-semibold text-gray-900 dark:text-white">{{ user?.username || '' }}</p>
-              <p class="mt-0.5 text-sm font-medium text-green-600 dark:text-green-400">{{ t('payment.currentBalance') }}: {{ user?.balance?.toFixed(2) || '0.00' }}</p>
-            </div>
-            <div v-if="enabledMethods.length === 0" class="card py-16 text-center">
+          <section v-if="activeTab === 'recharge'" id="payment-view-panel-recharge"
+            class="console-payment-flow" role="tabpanel" aria-labelledby="payment-view-tab-recharge" tabindex="0">
+            <div v-if="enabledMethods.length === 0" class="console-empty-state">
               <p class="text-gray-500 dark:text-gray-400">{{ t('payment.notAvailable') }}</p>
             </div>
-            <template v-else>
-            <div class="card p-6">
-              <AmountInput
-                v-model="amount"
-                :amounts="[10, 20, 50, 100, 200, 500, 1000, 2000, 5000]"
-                :min="globalMinAmount"
-                :max="globalMaxAmount"
-              />
-              <p v-if="amountError" class="mt-2 text-xs text-amber-600 dark:text-amber-300">{{ amountError }}</p>
-            </div>
-            <div v-if="enabledMethods.length >= 1" class="card p-6">
-              <PaymentMethodSelector
-                :methods="methodOptions"
-                :selected="selectedMethod"
-                @select="selectedMethod = $event"
-              />
-            </div>
-            <div v-if="validAmount > 0" class="card p-6">
-              <div class="space-y-2 text-sm">
-                <div class="flex justify-between">
-                  <span class="text-gray-500 dark:text-gray-400">{{ t('payment.paymentAmount') }}</span>
-                  <span class="text-gray-900 dark:text-white">{{ formatSelectedPaymentAmount(validAmount) }}</span>
+            <div v-else class="console-recharge-layout">
+              <div class="console-recharge-fields">
+                <section class="console-payment-section">
+                  <h2 class="console-payment-step"><span aria-hidden="true">01</span>{{ t('payment.amountLabel') }}</h2>
+                  <AmountInput
+                    v-model="amount"
+                    :amounts="[10, 20, 50, 100, 200, 500, 1000, 2000, 5000]"
+                    :min="globalMinAmount"
+                    :max="globalMaxAmount"
+                    :currency="selectedCurrency"
+                  />
+                  <p v-if="amountError" class="console-payment-warning">{{ amountError }}</p>
+                </section>
+                <section v-if="enabledMethods.length >= 1" class="console-payment-section">
+                  <h2 class="console-payment-step"><span aria-hidden="true">02</span>{{ t('payment.paymentMethod') }}</h2>
+                  <PaymentMethodSelector
+                    :methods="methodOptions"
+                    :selected="selectedMethod"
+                    @select="selectedMethod = $event"
+                  />
+                </section>
+              </div>
+              <aside class="console-checkout-summary">
+                <div class="console-account-strip">
+                  <div class="min-w-0">
+                    <p class="console-kicker">{{ t('payment.rechargeAccount') }}</p>
+                    <p class="console-account-name">{{ user?.username || '' }}</p>
+                  </div>
+                  <div class="console-balance-block">
+                    <span>{{ t('payment.currentBalance') }}</span>
+                    <strong>${{ user?.balance?.toFixed(2) || '0.00' }}</strong>
+                  </div>
                 </div>
-                <div v-if="feeRate > 0" class="flex justify-between">
-                  <span class="text-gray-500 dark:text-gray-400">{{ t('payment.fee') }} ({{ feeRate }}%)</span>
-                  <span class="text-gray-900 dark:text-white">{{ formatSelectedPaymentAmount(feeAmount) }}</span>
+                <div class="console-checkout-summary__header">
+                  <span>{{ t('payment.actualPay') }}</span>
+                  <strong>{{ formatSelectedPaymentAmount(totalAmount) }}</strong>
                 </div>
-                <div v-if="feeRate > 0" class="flex justify-between border-t border-gray-200 pt-2 dark:border-dark-600">
-                  <span class="font-medium text-gray-700 dark:text-gray-300">{{ t('payment.actualPay') }}</span>
-                  <span class="text-lg font-bold text-primary-600 dark:text-primary-400">{{ formatSelectedPaymentAmount(totalAmount) }}</span>
+                <div class="console-checkout-summary__rows">
+                  <div v-if="selectedMethod"><span>{{ t('payment.paymentMethod') }}</span><strong>{{ selectedMethodLabel }}</strong></div>
+                  <div>
+                    <span>{{ t('payment.paymentAmount') }}</span>
+                    <strong>{{ formatSelectedPaymentAmount(validAmount) }}</strong>
+                  </div>
+                  <div v-if="feeRate > 0">
+                    <span>{{ t('payment.fee') }} ({{ feeRate }}%)</span>
+                    <strong>{{ formatSelectedPaymentAmount(feeAmount) }}</strong>
+                  </div>
+                  <div v-if="balanceRechargeMultiplier !== 1">
+                    <span>{{ t('payment.creditedBalance') }}</span>
+                    <strong>${{ creditedAmount.toFixed(2) }}</strong>
+                  </div>
                 </div>
-                <div v-if="balanceRechargeMultiplier !== 1" class="flex justify-between" :class="{ 'border-t border-gray-200 pt-2 dark:border-dark-600': feeRate <= 0 }">
-                  <span class="text-gray-500 dark:text-gray-400">{{ t('payment.creditedBalance') }}</span>
-                  <span class="text-gray-900 dark:text-white">${{ creditedAmount.toFixed(2) }}</span>
-                </div>
-                <p v-if="balanceRechargeMultiplier !== 1" class="border-t border-gray-200 pt-2 text-xs text-gray-500 dark:border-dark-600 dark:text-gray-400">
+                <p v-if="balanceRechargeMultiplier !== 1" class="console-rate-note">
                   {{ t('payment.rechargeRatePreview', { currency: selectedCurrency, usd: balanceRechargeMultiplier.toFixed(2) }) }}
                 </p>
-              </div>
+                <div class="console-checkout-action">
+                <span class="console-checkout-mobile-total"><small>{{ t('payment.actualPay') }}</small><strong>{{ formatSelectedPaymentAmount(totalAmount) }}</strong></span>
+                <button :class="['btn w-full py-3 text-base font-medium', paymentButtonClass]" :disabled="!canSubmit || submitting" @click="handleSubmitRecharge">
+                  <span v-if="submitting" class="flex items-center justify-center gap-2">
+                    <span class="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"></span>
+                    {{ t('common.processing') }}
+                  </span>
+                  <span v-else>{{ t('payment.createOrder') }} <span class="console-checkout-button-amount">{{ formatSelectedPaymentAmount(totalAmount) }}</span></span>
+                </button>
+                </div>
+              </aside>
             </div>
-            <button :class="['btn w-full py-3 text-base font-medium', paymentButtonClass]" :disabled="!canSubmit || submitting" @click="handleSubmitRecharge">
-              <span v-if="submitting" class="flex items-center justify-center gap-2">
-                <span class="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"></span>
-                {{ t('common.processing') }}
-              </span>
-              <span v-else>{{ t('payment.createOrder') }} {{ formatSelectedPaymentAmount(totalAmount) }}</span>
-            </button>
-            </template>
-          </template>
+          </section>
           <!-- Recharge Center Tab: reuse the configured custom payment center instead of subscriptions -->
-          <template v-else-if="activeTab === 'rechargeCenter'">
-            <div ref="rechargeCenterFrameRef" class="recharge-center-shell overflow-hidden rounded-2xl border border-blue-100/80 bg-white/80 shadow-sm dark:border-blue-900/50 dark:bg-dark-800/80">
-              <div class="flex flex-col gap-3 border-b border-blue-100/70 bg-gradient-to-r from-blue-50/80 via-white to-cyan-50/70 px-5 py-4 sm:flex-row sm:items-center sm:justify-between dark:border-blue-900/40 dark:from-blue-950/40 dark:via-dark-800 dark:to-cyan-950/30">
+          <section v-else-if="activeTab === 'rechargeCenter'" id="payment-view-panel-rechargeCenter"
+            role="tabpanel" :aria-labelledby="tabs.length > 1 ? 'payment-view-tab-rechargeCenter' : undefined" :aria-label="tabs.length <= 1 ? t('payment.rechargeCenterTitle') : undefined" tabindex="0">
+            <div ref="rechargeCenterFrameRef" class="recharge-center-shell">
+              <div class="recharge-center-toolbar">
                 <div>
                   <p class="text-sm font-semibold text-gray-900 dark:text-white">{{ t('payment.rechargeCenterTitle') }}</p>
                   <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('payment.rechargeCenterDescription') }}</p>
@@ -104,7 +129,7 @@
                 <div v-if="rechargeCenterUrl" class="flex flex-wrap items-center gap-2">
                   <button
                     type="button"
-                    class="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-lg border border-blue-200 bg-white px-3 py-2 text-xs font-medium text-blue-700 transition hover:border-blue-300 hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 dark:border-blue-800 dark:bg-dark-800 dark:text-blue-300 dark:hover:bg-blue-950/40"
+                    class="console-tool-button"
                     :aria-label="isRechargeCenterFullscreen ? t('payment.rechargeCenterExitFullscreen') : t('payment.rechargeCenterFullscreen')"
                     @click="toggleRechargeCenterFullscreen"
                   >
@@ -115,17 +140,18 @@
                     :href="rechargeCenterUrl"
                     target="_blank"
                     rel="noopener noreferrer"
-                    class="inline-flex min-h-10 items-center justify-center rounded-lg border border-blue-200 bg-white px-3 py-2 text-xs font-medium text-blue-700 transition hover:border-blue-300 hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 dark:border-blue-800 dark:bg-dark-800 dark:text-blue-300 dark:hover:bg-blue-950/40"
+                    class="console-tool-button"
                   >
+                    <Icon name="externalLink" size="sm" aria-hidden="true" />
                     {{ t('payment.rechargeCenterOpen') }}
                   </a>
                 </div>
               </div>
-              <div v-if="rechargeCenterUrl" class="recharge-center-frame bg-white p-2 dark:bg-dark-900/30 sm:p-3">
+              <div v-if="rechargeCenterUrl" class="recharge-center-frame">
                 <iframe
                   :src="rechargeCenterUrl"
                   title="Recharge Center"
-                  class="h-[clamp(720px,calc(100dvh-210px),1080px)] min-h-[720px] w-full rounded-xl border border-gray-100 bg-white dark:border-dark-700"
+                  class="h-[clamp(720px,calc(100dvh-210px),1080px)] min-h-[720px] w-full border-0 bg-white"
                   allow="payment *; clipboard-write"
                   allowfullscreen
                 ></iframe>
@@ -134,7 +160,7 @@
                 {{ t('payment.rechargeCenterUnavailable') }}
               </div>
             </div>
-          </template>
+          </section>
           <!-- Legacy subscription flow kept for compatibility with existing order recovery links. -->
           <template v-else-if="activeTab === 'subscription'">
             <!-- Subscription confirm (inline, replaces plan list) -->
@@ -276,7 +302,7 @@
           <div class="relative flex max-h-full w-full max-w-lg flex-col rounded-2xl border border-gray-200 bg-white p-6 shadow-2xl dark:border-dark-700 dark:bg-dark-900">
             <!-- Close button -->
             <button class="absolute right-4 top-4 rounded-lg p-1 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-dark-700 dark:hover:text-gray-200" @click="closeRenewalModal">
-              <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+              <Icon name="x" size="md" :stroke-width="2" />
             </button>
             <h3 class="mb-4 shrink-0 text-lg font-semibold text-gray-900 dark:text-white">{{ t('payment.selectPlan') }}</h3>
             <div class="min-h-0 space-y-4 overflow-y-auto">
@@ -303,7 +329,7 @@ import { useI18n } from 'vue-i18n'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import '@/styles/announcement-markdown.css'
-import { useRoute, useRouter } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { usePaymentStore } from '@/stores/payment'
 import { useSubscriptionStore } from '@/stores/subscriptions'
@@ -315,6 +341,7 @@ import { hasPeakRate, formatPeakRateWindow, serverTimezoneLabel, type PeakRateFi
 import type { SubscriptionPlan, CheckoutInfoResponse, CreateOrderResult, OrderType } from '@/types/payment'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import AmountInput from '@/components/payment/AmountInput.vue'
+import ConsoleTabs from '@/components/common/ConsoleTabs.vue'
 import PaymentMethodSelector from '@/components/payment/PaymentMethodSelector.vue'
 import { METHOD_ORDER, getPaymentPopupFeatures, isBuiltInAlipayMethod, isBuiltInWxpayMethod } from '@/components/payment/providerConfig'
 import {
@@ -373,6 +400,7 @@ const rechargeCenterFrameRef = ref<HTMLElement | null>(null)
 const isRechargeCenterFullscreen = ref(false)
 const amount = ref<number | null>(null)
 const selectedMethod = ref('')
+const selectedMethodLabel = computed(() => methodOptions.value.find(method => method.type === selectedMethod.value)?.display_name || t(`payment.methods.${selectedMethod.value}`, selectedMethod.value))
 const selectedPlan = ref<SubscriptionPlan | null>(null)
 const previewImage = ref('')
 
@@ -1267,6 +1295,354 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.console-payment {
+  --payment-bg: var(--console-bg);
+  --payment-surface: var(--console-surface);
+  --payment-line: var(--console-line);
+  --payment-text: var(--console-text);
+  --payment-muted: var(--console-muted);
+  --payment-accent: var(--console-accent);
+  --payment-accent-soft: var(--console-accent-soft);
+  --payment-amber: var(--console-amber);
+  display: grid;
+  gap: 18px;
+  min-width: 0;
+  color: var(--payment-text);
+  letter-spacing: 0;
+}
+
+.console-payment-heading {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--payment-line);
+}
+
+.console-payment-heading__icon {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid var(--payment-line);
+  border-radius: 6px;
+  color: var(--payment-accent);
+  background: var(--payment-surface);
+}
+
+.console-payment-heading__index,
+.console-kicker {
+  margin: 0;
+  color: var(--payment-muted);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.4;
+  letter-spacing: 0;
+}
+
+.console-payment-heading h1 {
+  margin: 2px 0 0;
+  color: var(--payment-text);
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.console-payment-heading p:last-child {
+  margin: 4px 0 0;
+  color: var(--payment-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.console-payment-orders { flex: 0 0 auto; margin-left: auto; gap: 8px; }
+.console-payment-flow { padding-top: 14px; }
+.console-payment-step { display: flex; align-items: baseline; gap: 12px; margin-bottom: 18px; font-size: 15px; font-weight: 600; }
+.console-payment-step > span { font-size: 11px; color: var(--payment-muted); font-variant-numeric: tabular-nums; }
+.console-payment-section :deep(.payment-amount-input__entry > span:first-child),
+.console-payment-section :deep(.payment-method-selector > label) { display: none; }
+
+.console-account-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  min-width: 0;
+  padding: 18px;
+  border-bottom: 1px solid var(--payment-line);
+}
+
+.console-account-name {
+  margin: 3px 0 0;
+  overflow: hidden;
+  color: var(--payment-text);
+  font-size: 15px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.console-balance-block {
+  display: grid;
+  flex: 0 0 auto;
+  gap: 2px;
+  text-align: right;
+}
+
+.console-balance-block span {
+  color: var(--payment-muted);
+  font-size: 11px;
+}
+
+.console-balance-block strong {
+  color: var(--payment-accent);
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+.console-recharge-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 320px);
+  gap: 40px;
+  align-items: start;
+}
+
+.console-recharge-fields {
+  display: grid;
+  gap: 24px;
+  min-width: 0;
+}
+
+.console-checkout-summary,
+.console-empty-state {
+  border: 1px solid var(--payment-line);
+  border-radius: 8px;
+  background: var(--payment-surface);
+}
+
+.console-payment-section {
+  min-width: 0;
+}
+
+.console-payment-section + .console-payment-section {
+  padding-top: 24px;
+  border-top: 1px solid var(--payment-line);
+}
+
+.console-empty-state {
+  padding: 56px 20px;
+  text-align: center;
+}
+
+.console-payment-warning {
+  margin: 10px 0 0;
+  color: var(--payment-amber);
+  font-size: 12px;
+}
+
+.console-checkout-summary {
+  position: sticky;
+  top: 82px;
+  overflow: hidden;
+}
+
+.console-checkout-summary__header {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 22px 18px;
+  border-bottom: 1px solid var(--payment-line);
+  background: var(--payment-bg);
+}
+
+.console-checkout-summary__header span {
+  color: var(--payment-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.console-checkout-summary__header strong {
+  color: var(--payment-accent);
+  font-size: 30px;
+  font-weight: 550;
+  overflow-wrap: anywhere;
+  max-width: 100%;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.console-checkout-summary__rows {
+  display: grid;
+  gap: 10px;
+  padding: 16px 18px;
+}
+
+.console-checkout-summary__rows > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  color: var(--payment-muted);
+  font-size: 13px;
+}
+
+.console-checkout-summary__rows strong {
+  color: var(--payment-text);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.console-rate-note {
+  margin: 0 18px 16px;
+  padding: 10px 0 0;
+  border-top: 1px solid var(--payment-line);
+  color: var(--payment-amber);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.console-checkout-action { padding: 0 18px 18px; }
+.console-checkout-mobile-total { display: none; }
+
+.recharge-center-shell {
+  overflow: hidden;
+  border: 1px solid var(--payment-line);
+  border-radius: 8px;
+  background: var(--payment-surface);
+}
+
+.recharge-center-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--payment-line);
+  background: var(--payment-bg);
+}
+
+.console-tool-button {
+  display: inline-flex;
+  min-height: 38px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 10px;
+  border: 1px solid var(--payment-line);
+  border-radius: 6px;
+  color: var(--payment-text);
+  background: var(--payment-surface);
+  font-size: 12px;
+  font-weight: 600;
+  transition: border-color 120ms ease, color 120ms ease, background-color 120ms ease;
+}
+
+.console-tool-button:hover {
+  border-color: var(--payment-accent);
+  color: var(--payment-accent);
+  background: var(--payment-accent-soft);
+}
+
+.recharge-center-frame {
+  padding: 8px;
+  background: var(--payment-bg);
+}
+
+.console-payment :deep(.payment-amount-input),
+.console-payment :deep(.payment-method-selector) {
+  color: var(--payment-text);
+}
+
+.console-payment :deep(.payment-amount-input__grid) {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.console-payment :deep(.payment-amount-input__option) {
+  min-width: 0;
+  min-height: 46px;
+  padding: 9px 10px;
+  border-width: 1px;
+  border-radius: 6px;
+  font-variant-numeric: tabular-nums;
+  font-size: 17px;
+  font-weight: 550;
+}
+
+.console-payment :deep(.payment-method-selector__grid) {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+}
+
+.console-payment :deep(.payment-method-selector__option) {
+  min-height: 66px;
+  height: auto;
+  padding: 12px 46px 12px 16px;
+  border-radius: 6px;
+  box-shadow: none;
+}
+
+.console-payment :deep(.payment-method-selector__option > span) { justify-content: flex-start; }
+.console-payment :deep(.payment-method-selector__option::after) { content: ''; position: absolute; right: 18px; top: calc(50% - 7px); width: 14px; height: 14px; border: 1px solid var(--console-control-line); border-radius: 50%; }
+.console-payment :deep(.payment-method-selector__option[aria-pressed='true']::after) { border: 4px solid var(--payment-accent); background: var(--payment-surface); }
+
+.console-payment :deep(.payment-method-selector__option[aria-pressed='true']) {
+  border-color: var(--payment-accent);
+  color: var(--payment-text);
+  background: var(--payment-accent-soft);
+  box-shadow: inset 0 -2px var(--payment-accent);
+}
+
+.console-payment > :deep(.card),
+.console-payment :deep(.payment-status-card),
+.console-payment :deep(.payment-subscription-plan) {
+  border: 1px solid var(--payment-line);
+  border-radius: 8px;
+  background: var(--payment-surface);
+  box-shadow: none;
+}
+
+.console-payment :deep(.payment-status-panel) {
+  width: min(100%, 620px);
+  margin-inline: auto;
+}
+
+.console-payment :deep(.payment-status-card .rounded-xl) {
+  border: 1px solid var(--payment-line);
+  border-radius: 6px;
+  background: var(--payment-bg);
+}
+
+.console-payment :deep(.payment-subscription-plan) {
+  transform: none;
+}
+
+.console-payment :deep(.payment-subscription-plan:hover) {
+  transform: none;
+  border-color: var(--payment-accent);
+  box-shadow: none;
+}
+
+.console-payment :deep(.payment-subscription-plan > div:first-child) {
+  height: 3px;
+  background: var(--payment-accent);
+}
+
+.console-payment :deep(.payment-subscription-plan__quota) {
+  border: 1px solid var(--payment-line);
+  border-radius: 6px;
+  background: var(--payment-bg);
+}
+
+.console-payment :deep(.payment-subscription-plan__action) {
+  border-radius: 6px;
+  box-shadow: none;
+  transform: none;
+}
+
 .recharge-center-shell:fullscreen {
   display: flex;
   height: 100dvh;
@@ -1283,5 +1659,73 @@ onUnmounted(() => {
 .recharge-center-shell:fullscreen iframe {
   height: 100%;
   min-height: 0;
+}
+
+@media (max-width: 767px) {
+  .console-payment {
+    gap: 14px;
+  }
+
+  .console-payment-heading {
+    padding-bottom: 14px;
+    flex-wrap: wrap;
+  }
+
+  .console-payment-heading h1 {
+    font-size: 21px;
+  }
+
+  .console-recharge-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .console-checkout-summary {
+    position: static;
+    overflow: visible;
+  }
+
+  .console-payment:has(.console-checkout-action) { padding-bottom: 98px; }
+  .console-payment :is(input, .payment-method-selector__option) { scroll-margin-bottom: 110px; }
+  .console-payment-orders { font-size: 12px; }
+  .console-checkout-action { position: fixed; bottom: 0; left: 0; right: 0; z-index: 25; display: flex; align-items: center; gap: 16px; padding: 14px 16px max(14px, env(safe-area-inset-bottom)); border-top: 1px solid var(--payment-line); background: var(--payment-surface); box-shadow: 0 -6px 24px #0000000a; }
+  .console-checkout-action > .btn { flex: 1; min-width: 0; width: auto; font-size: 14px; }
+  .console-checkout-mobile-total { display: grid; flex: 1; min-width: 0; font-variant-numeric: tabular-nums; }
+  .console-checkout-mobile-total small { font-size: 11px; color: var(--payment-muted); }
+  .console-checkout-mobile-total strong { font-size: 22px; overflow-wrap: anywhere; }
+  .console-checkout-button-amount { display: none; }
+
+  .recharge-center-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 374px) {
+  .console-payment-heading__icon {
+    display: none;
+  }
+
+  .console-account-strip {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .console-balance-block {
+    width: 100%;
+    padding-top: 10px;
+    border-top: 1px solid var(--payment-line);
+    text-align: left;
+  }
+
+  .console-payment :deep(.payment-amount-input__grid) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .recharge-center-toolbar > div:last-child {
+    display: grid;
+    width: 100%;
+    grid-template-columns: 1fr;
+  }
 }
 </style>

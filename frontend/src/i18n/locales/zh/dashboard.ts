@@ -1,6 +1,12 @@
 export default {
   dashboard: {
     title: '仪表盘',
+    overview: '用量概览',
+    recentTotal: '近期累计',
+    recentTokens: '近期累计 Token',
+    totalUsage: '总用量',
+    tokenDetails: 'Token 明细',
+    chartsFailed: '用量数据暂时加载失败',
     loadFailed: '账户概览暂时加载失败',
     welcomeMessage: '欢迎回来！这是您账户的概览。',
     balance: '余额',
@@ -816,6 +822,7 @@ export default {
     days: '天',
     codeRedeemSuccess: '兑换成功！',
     failedToRedeem: '兑换失败，请检查兑换码后重试。',
+    historyLoadFailed: '加载兑换记录失败，请重试。',
     userRefreshFailed: '兑换成功，但账户信息刷新失败。',
     subscriptionRefreshFailed: '兑换成功，但订阅状态刷新失败。',
     pleaseEnterCode: '请输入兑换码'

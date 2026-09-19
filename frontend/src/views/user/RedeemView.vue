@@ -1,27 +1,28 @@
 <template>
   <AppLayout>
-    <div class="mx-auto max-w-2xl space-y-6">
-      <!-- Current Balance Card -->
-      <div class="card overflow-hidden">
-        <div class="bg-gradient-to-br from-primary-500 to-primary-600 px-6 py-8 text-center">
-          <div
-            class="mb-4 inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-white/20 backdrop-blur-sm"
-          >
-            <Icon name="creditCard" size="xl" class="text-white" />
-          </div>
-          <p class="text-sm font-medium text-primary-100">{{ t('redeem.currentBalance') }}</p>
-          <p class="mt-2 text-4xl font-bold text-white">
+    <div class="console-account-page console-redeem mx-auto max-w-3xl space-y-6">
+      <header class="console-account-heading">
+        <span class="console-account-index">REDEEM</span>
+        <h1>{{ t('redeem.title') }}</h1>
+      </header>
+      <div class="console-balance-strip">
+        <div>
+          <p class="console-account-label">{{ t('redeem.currentBalance') }}</p>
+          <p class="console-account-balance">
             ${{ user?.balance?.toFixed(2) || '0.00' }}
           </p>
-          <p class="mt-2 text-sm text-primary-100">
-            {{ t('redeem.concurrency') }}: {{ user?.concurrency || 0 }} {{ t('redeem.requests') }}
+        </div>
+        <div>
+          <p class="console-account-label">{{ t('redeem.concurrency') }}</p>
+          <p class="console-account-number">
+            {{ user?.concurrency || 0 }} <span>{{ t('redeem.requests') }}</span>
           </p>
         </div>
       </div>
 
       <!-- Redeem Form -->
-      <div class="card">
-        <div class="p-6">
+      <div class="console-account-section">
+        <div>
           <form @submit.prevent="handleRedeem" class="space-y-5">
             <div>
               <label for="code" class="input-label">
@@ -51,26 +52,7 @@
               :disabled="!redeemCode || submitting"
               class="btn btn-primary w-full py-3"
             >
-              <svg
-                v-if="submitting"
-                class="-ml-1 mr-2 h-5 w-5 animate-spin"
-                fill="none"
-                viewBox="0 0 24 24"
-              >
-                <circle
-                  class="opacity-25"
-                  cx="12"
-                  cy="12"
-                  r="10"
-                  stroke="currentColor"
-                  stroke-width="4"
-                ></circle>
-                <path
-                  class="opacity-75"
-                  fill="currentColor"
-                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                ></path>
-              </svg>
+              <Icon v-if="submitting" name="refresh" size="md" class="mr-2 animate-spin" />
               <Icon v-else name="checkCircle" size="md" class="mr-2" />
               {{ submitting ? t('redeem.redeeming') : t('redeem.redeemButton') }}
             </button>
@@ -92,9 +74,9 @@
                 <Icon name="checkCircle" size="md" class="text-emerald-600 dark:text-emerald-400" />
               </div>
               <div class="flex-1">
-                <h3 class="text-sm font-semibold text-emerald-800 dark:text-emerald-300">
+                <h2 class="text-sm font-semibold text-emerald-800 dark:text-emerald-300">
                   {{ t('redeem.redeemSuccess') }}
-                </h3>
+                </h2>
                 <div class="mt-2 text-sm text-emerald-700 dark:text-emerald-400">
                   <p>{{ redeemResult.message }}</p>
                   <div class="mt-3 space-y-1">
@@ -150,9 +132,9 @@
                 />
               </div>
               <div class="flex-1">
-                <h3 class="text-sm font-semibold text-red-800 dark:text-red-300">
+                <h2 class="text-sm font-semibold text-red-800 dark:text-red-300">
                   {{ t('redeem.redeemFailed') }}
-                </h3>
+                </h2>
                 <p class="mt-2 text-sm text-red-700 dark:text-red-400">
                   {{ errorMessage }}
                 </p>
@@ -174,9 +156,9 @@
               <Icon name="infoCircle" size="md" class="text-primary-600 dark:text-primary-400" />
             </div>
             <div class="flex-1">
-              <h3 class="text-sm font-semibold text-primary-800 dark:text-primary-300">
+              <h2 class="text-sm font-semibold text-primary-800 dark:text-primary-300">
                 {{ t('redeem.aboutCodes') }}
-              </h3>
+              </h2>
               <ul
                 class="mt-2 list-inside list-disc space-y-1 text-sm text-primary-700 dark:text-primary-400"
               >
@@ -335,6 +317,30 @@
               {{ t('redeem.historyWillAppear') }}
             </p>
           </div>
+          <div class="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm">
+            <span>{{ t('common.total') }}: {{ historyTotal }} {{ t('pagination.results') }}</span>
+            <label>
+              {{ t('pagination.perPage') }}
+              <select
+                v-model="historyPageSize"
+                class="input w-20"
+                :disabled="loadingHistory || submitting"
+                @change="fetchHistory(1)"
+              >
+                <option v-for="size in [20, 50, 100]" :key="size" :value="size">{{ size }}</option>
+              </select>
+            </label>
+            <button
+              class="btn btn-secondary"
+              :disabled="loadingHistory || submitting || historyPage <= 1"
+              @click="fetchHistory(historyPage - 1)"
+            >{{ t('pagination.previous') }}</button>
+            <button
+              class="btn btn-secondary"
+              :disabled="loadingHistory || submitting || historyPage * historyPageSize >= historyTotal"
+              @click="fetchHistory(historyPage + 1)"
+            >{{ t('pagination.next') }}</button>
+          </div>
         </div>
       </div>
     </div>
@@ -375,6 +381,11 @@ const errorMessage = ref('')
 // History data
 const history = ref<RedeemHistoryItem[]>([])
 const loadingHistory = ref(false)
+const historyPage = ref(1)
+const historyPageSize = ref(20)
+const historyTotal = ref(0)
+let historyRequest = 0
+let loadedHistoryPageSize = 20
 const contactInfo = ref('')
 
 // Helper functions for history display
@@ -420,14 +431,25 @@ const formatHistoryValue = (item: RedeemHistoryItem) => {
   }
 }
 
-const fetchHistory = async () => {
+const fetchHistory = async (page = 1) => {
+  const request = ++historyRequest
+  const pageSize = historyPageSize.value
   loadingHistory.value = true
   try {
-    history.value = await redeemAPI.getHistory()
+    const result = await redeemAPI.getHistory(page, pageSize)
+    if (request !== historyRequest) return
+    history.value = result.items
+    historyTotal.value = result.total
+    historyPage.value = page
+    historyPageSize.value = pageSize
+    loadedHistoryPageSize = pageSize
   } catch (error) {
+    if (request !== historyRequest) return
+    historyPageSize.value = loadedHistoryPageSize
+    appStore.showError(t('redeem.historyLoadFailed'))
     console.error('Failed to fetch history:', error)
   } finally {
-    loadingHistory.value = false
+    if (request === historyRequest) loadingHistory.value = false
   }
 }
 

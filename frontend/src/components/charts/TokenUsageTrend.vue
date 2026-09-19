@@ -55,6 +55,7 @@ const props = defineProps<{
   trendData: TrendDataPoint[]
   loading?: boolean
   animationDuration?: number
+  mode?: 'total' | 'breakdown'
 }>()
 
 const chartTheme = useChartTheme()
@@ -73,7 +74,17 @@ const chartData = computed(() => {
 
   return {
     labels: props.trendData.map((d) => d.date),
-    datasets: [
+    datasets: props.mode === 'total' ? [{
+      label: t('dashboard.totalUsage'),
+      data: props.trendData.map(d => d.total_tokens),
+      borderColor: chartColors.value.input,
+      backgroundColor: `${chartColors.value.input}18`,
+      borderWidth: 2,
+      pointRadius: 2,
+      pointHoverRadius: 4,
+      fill: true,
+      tension: 0.25,
+    }] : [
       {
         label: 'Input',
         data: props.trendData.map((d) => d.input_tokens),
@@ -133,6 +144,7 @@ const lineOptions = computed(() => ({
   },
   plugins: {
     legend: {
+      display: props.mode !== 'total',
       position: 'top' as const,
       labels: {
         color: chartColors.value.text,
@@ -166,6 +178,7 @@ const lineOptions = computed(() => ({
   scales: {
     x: {
       grid: {
+        display: props.mode !== 'total',
         color: chartColors.value.grid
       },
       ticks: {
@@ -188,6 +201,7 @@ const lineOptions = computed(() => ({
       }
     },
     yPercent: {
+      display: props.mode !== 'total',
       position: 'right' as const,
       min: 0,
       max: 100,

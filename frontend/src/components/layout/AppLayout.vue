@@ -1,5 +1,8 @@
 <template>
-  <div class="min-h-screen bg-ui-page text-ui-ink" :class="{ 'console-workspace': isConsoleWorkspace }">
+  <div
+    class="min-h-screen bg-ui-page text-ui-ink"
+    :class="{ 'console-workspace': isConsoleWorkspace, 'console-admin': isAdminConsole, 'console-nav-collapsed': sidebarCollapsed }"
+  >
     <!-- Sidebar -->
     <AppSidebar />
 
@@ -22,6 +25,8 @@
 <script setup lang="ts">
 import '@/styles/onboarding.css'
 import '@/styles/console-shell.css'
+import '@/styles/console-account.css'
+import '@/styles/console-studio.css'
 import { computed, onMounted } from 'vue'
 import { useAppStore } from '@/stores'
 import { useAuthStore } from '@/stores/auth'
@@ -33,7 +38,7 @@ import AppHeader from './AppHeader.vue'
 
 const appStore = useAppStore()
 const authStore = useAuthStore()
-const { isConsoleWorkspace } = useConsoleWorkspace()
+const { isConsoleWorkspace, isAdminConsole } = useConsoleWorkspace()
 const sidebarCollapsed = computed(() => appStore.sidebarCollapsed)
 const isAdmin = computed(() => authStore.user?.role === 'admin')
 

@@ -1,76 +1,76 @@
 <template>
   <section class="console-stats" :aria-label="t('dashboard.title')">
-    <div class="console-stat-strip" :class="{ 'console-stat-strip--simple': isSimple }">
+    <div v-if="section !== 'platforms'" class="console-lead-grid" :class="{ 'console-lead-grid--simple': isSimple }">
       <div v-if="!isSimple" class="console-metric console-metric--balance">
-        <p class="console-label"><Icon name="dollar" size="sm" />{{ t('dashboard.balance') }}</p>
+        <p class="console-label">{{ t('dashboard.balance') }} <span>USD</span></p>
         <p class="console-value">${{ formatBalance(balance) }}</p>
-        <p class="console-detail">{{ t('common.available') }}</p>
+        <div class="console-metric-foot">
+          <span>{{ t('dashboard.recentTotal') }} / {{ t('dashboard.actual') }}</span>
+          <strong>${{ formatCost(stats?.total_actual_cost || 0) }}</strong>
+          <span>{{ t('dashboard.standard') }} ${{ formatCost(stats?.total_cost || 0) }}</span>
+        </div>
+      </div>
+      <div class="console-metric console-metric--total">
+        <p class="console-label">{{ t('dashboard.recentTokens') }}</p>
+        <p class="console-value">{{ formatTokens(stats?.total_tokens || 0) }} <small>tokens</small></p>
+        <dl class="console-token-split">
+          <div><dt>{{ t('dashboard.input') }}</dt><dd>{{ formatTokens(stats?.total_input_tokens || 0) }}</dd></div>
+          <div><dt>{{ t('dashboard.output') }}</dt><dd>{{ formatTokens(stats?.total_output_tokens || 0) }}</dd></div>
+          <div><dt>{{ t('dashboard.cache') }}</dt><dd>{{ formatTokens((stats?.total_cache_creation_tokens || 0) + (stats?.total_cache_read_tokens || 0)) }}</dd></div>
+        </dl>
+      </div>
+      <slot name="actions" />
+    </div>
+
+    <div v-if="section !== 'platforms'" class="console-stat-strip" :class="{ 'console-stat-strip--models': $slots.models }">
+      <div class="console-metric console-metric--tokens">
+        <p class="console-label">{{ t('dashboard.todayTokens') }}</p>
+        <p class="console-value">{{ formatTokens(stats?.today_tokens || 0) }}</p>
+        <div class="console-metric-foot">
+          <span>{{ t('dashboard.input') }} {{ formatTokens(stats?.today_input_tokens || 0) }} / {{ t('dashboard.output') }} {{ formatTokens(stats?.today_output_tokens || 0) }}</span>
+          <span>{{ t('dashboard.cache') }} {{ formatTokens((stats?.today_cache_creation_tokens || 0) + (stats?.today_cache_read_tokens || 0)) }}</span>
+        </div>
       </div>
       <div class="console-metric console-metric--cost">
         <p class="console-label"><Icon name="dollar" size="sm" />{{ t('dashboard.todayCost') }}</p>
         <p class="console-value" :title="t('dashboard.actual')">${{ formatCost(stats?.today_actual_cost || 0) }}</p>
-        <p class="console-detail"><span>{{ t('dashboard.standard') }}</span> <span>${{ formatCost(stats?.today_cost || 0) }}</span></p>
-        <p class="console-detail console-detail--wrap">
-          <span>{{ t('dashboard.last30Days') }}:</span>
-          <span class="console-spend" :title="t('dashboard.actual')">${{ formatCost(stats?.total_actual_cost || 0) }}</span>
-          <span :title="t('dashboard.standard')">/ ${{ formatCost(stats?.total_cost || 0) }}</span>
-        </p>
+        <div class="console-metric-foot"><span>{{ t('dashboard.standard') }}</span><strong>${{ formatCost(stats?.today_cost || 0) }}</strong></div>
       </div>
       <div class="console-metric">
         <p class="console-label"><Icon name="chart" size="sm" />{{ t('dashboard.todayRequests') }}</p>
         <p class="console-value">{{ stats?.today_requests || 0 }}</p>
-        <p class="console-detail">{{ t('dashboard.last30Days') }}: {{ formatNumber(stats?.total_requests || 0) }}</p>
+        <div class="console-metric-foot"><span>{{ t('dashboard.recentTotal') }}</span><strong>{{ formatNumber(stats?.total_requests || 0) }}</strong></div>
       </div>
       <div class="console-metric">
         <p class="console-label"><Icon name="key" size="sm" />{{ t('dashboard.apiKeys') }}</p>
         <p class="console-value">{{ stats?.total_api_keys || 0 }}</p>
-        <p class="console-detail console-active">{{ stats?.active_api_keys || 0 }} {{ t('common.active') }}</p>
+        <div class="console-metric-foot"><span class="console-active">{{ stats?.active_api_keys || 0 }} {{ t('common.active') }}</span></div>
       </div>
+      <slot name="models" />
     </div>
 
-    <div class="console-telemetry">
-      <div class="console-reading">
-        <p class="console-label">{{ t('dashboard.todayTokens') }}</p>
-        <p class="console-reading-value">{{ formatTokens(stats?.today_tokens || 0) }}</p>
-        <p class="console-detail console-detail--wrap">
-          <span>{{ t('dashboard.input') }}: {{ formatTokens(stats?.today_input_tokens || 0) }}</span>
-          <span>{{ t('dashboard.output') }}: {{ formatTokens(stats?.today_output_tokens || 0) }}</span>
-          <span>{{ t('dashboard.cache') }}: {{ formatTokens((stats?.today_cache_creation_tokens || 0) + (stats?.today_cache_read_tokens || 0)) }}</span>
-        </p>
-      </div>
-      <div class="console-reading">
-        <p class="console-label">{{ t('dashboard.totalTokens') }}</p>
-        <p class="console-reading-value">{{ formatTokens(stats?.total_tokens || 0) }}</p>
-        <p class="console-detail console-detail--wrap">
-          <span>{{ t('dashboard.input') }}: {{ formatTokens(stats?.total_input_tokens || 0) }}</span>
-          <span>{{ t('dashboard.output') }}: {{ formatTokens(stats?.total_output_tokens || 0) }}</span>
-          <span>{{ t('dashboard.cache') }}: {{ formatTokens((stats?.total_cache_creation_tokens || 0) + (stats?.total_cache_read_tokens || 0)) }}</span>
-        </p>
-      </div>
+    <div v-if="section !== 'platforms'" class="console-telemetry">
       <div class="console-reading">
         <p class="console-label">{{ t('dashboard.performance') }}</p>
-        <p class="console-reading-value">{{ formatTokens(stats?.rpm || 0) }} <span>RPM</span></p>
-        <p class="console-detail">{{ formatTokens(stats?.tpm || 0) }} TPM</p>
+        <p class="console-reading-value">{{ formatTokens(stats?.rpm || 0) }} <span>RPM</span> / {{ formatTokens(stats?.tpm || 0) }} <span>TPM</span></p>
       </div>
       <div class="console-reading">
         <p class="console-label">{{ t('dashboard.avgResponse') }}</p>
         <p class="console-reading-value">{{ formatDuration(stats?.average_duration_ms || 0) }}</p>
-        <p class="console-detail">{{ t('dashboard.averageTime') }}</p>
       </div>
     </div>
 
-    <section v-if="!isSimple && platformCards.length > 0" class="console-platforms">
+    <section v-if="section !== 'summary' && !isSimple && platformCards.length > 0" class="console-platforms">
       <header class="console-section-heading">
-        <h2>{{ t('dashboard.platformBreakdown') }}</h2>
-        <span>{{ t('dashboard.platformCount', { count: sortedPlatforms.length }) }}</span>
+        <h2>{{ t('dashboard.last30Days') }}</h2>
+        <span>{{ t('dashboard.platformCount', { count: platformCards.length }) }}</span>
       </header>
       <div class="console-platform-grid">
-        <article v-for="item in platformCards" :key="item.platform" class="console-platform" :class="{ 'console-platform--other': item.isOther }">
+        <article v-for="item in platformCards" :key="item.platform" class="console-platform">
           <header class="console-platform-heading">
             <span class="console-platform-name">
-              <Icon v-if="item.isOther" name="grid" size="md" />
-              <PlatformIcon v-else :platform="item.platform as GroupPlatform" size="lg" />
-              <span>{{ item.isOther ? t('dashboard.platformOther') : platformLabel(item.platform) }}</span>
+              <PlatformIcon :platform="item.platform as GroupPlatform" size="lg" />
+              <span>{{ platformLabel(item.platform) }}</span>
             </span>
             <span class="console-spend" :title="t('dashboard.actual')">${{ formatCost(item.total_actual_cost) }}</span>
           </header>
@@ -79,7 +79,7 @@
             <div><dt>{{ t('dashboard.requests') }}</dt><dd>{{ item.total_requests > 0 ? formatNumber(item.total_requests) : '-' }}</dd></div>
             <div><dt>{{ t('dashboard.tokens') }}</dt><dd>{{ item.total_tokens > 0 ? formatTokens(item.total_tokens) : '-' }}</dd></div>
           </dl>
-          <div v-if="hasAnyLimit(item.quota) && !item.isOther" class="console-quota">
+          <div v-if="hasAnyLimit(item.quota)" class="console-quota">
             <p class="console-label">{{ t('dashboard.platformQuota.title') }}</p>
             <template v-for="w in (['daily', 'weekly', 'monthly'] as const)" :key="w">
               <div v-if="quotaVal(item.quota, `${w}_limit_usd`) != null" class="console-quota-window">
@@ -105,6 +105,7 @@
         </article>
       </div>
     </section>
+    <p v-else-if="section === 'platforms' && !isSimple" class="console-platform-empty">{{ t('dashboard.platformBreakdownEmpty') }}</p>
   </section>
 </template>
 
@@ -122,7 +123,6 @@ interface FusedPlatformCard {
   today_actual_cost: number
   total_requests: number
   total_tokens: number
-  isOther?: boolean
   quota?: PlatformQuotaItem
 }
 
@@ -131,6 +131,7 @@ const props = defineProps<{
   balance: number
   isSimple: boolean
   platformQuotas?: PlatformQuotaItem[] | null
+  section?: 'summary' | 'platforms'
 }>()
 const { t } = useI18n()
 
@@ -148,26 +149,16 @@ const PLATFORM_LABELS: Record<string, string> = {
 
 const platformLabel = (p: string) => PLATFORM_LABELS[p] ?? p
 
-const sortedPlatforms = computed(() => {
-  const list = props.stats?.by_platform ?? []
-  return [...list].sort((a, b) => b.total_actual_cost - a.total_actual_cost)
-})
-
-// 处理"各平台之和 < 总值"的差值：后端按平台聚合时过滤了无法归属平台的行
-// （group 与 account 都缺 platform）。这里把差值作为"其他"卡片显式展示，
-// 避免 Row 1 总值与 Row 3 平台拆分加总对不上、用户困惑。
-const OTHER_THRESHOLD = 0.0001
 const platformCards = computed<FusedPlatformCard[]>(() => {
   // 建立 by_platform Map
-  const byPlat = new Map<string, (typeof sortedPlatforms.value)[number]>()
+  const byPlat = new Map<string, NonNullable<UserStatsType['by_platform']>[number]>()
   for (const item of props.stats?.by_platform ?? []) byPlat.set(item.platform, item)
 
   // 建立 quota Map
   const byQuota = new Map<string, PlatformQuotaItem>()
   for (const q of props.platformQuotas ?? []) byQuota.set(q.platform, q)
 
-  // union 平台集合。后端 by_platform / quota 接口均不会返回 platform='__other__'，
-  // 无需显式排除；__other__ 由下方差值补差逻辑单独追加。
+  // Platform windows can differ from totals. Never synthesize spend from their difference.
   const platforms = new Set<string>([...byPlat.keys(), ...byQuota.keys()])
 
   const PLATFORM_ORDER = ['anthropic', 'openai', 'gemini', 'antigravity', 'grok']
@@ -194,25 +185,6 @@ const platformCards = computed<FusedPlatformCard[]>(() => {
     if (bi === -1) return -1
     return ai - bi
   })
-
-  // __other__ 补差逻辑：只对 by_platform 有 usage 数据的总和计算
-  const total = props.stats?.total_actual_cost ?? 0
-  const today = props.stats?.today_actual_cost ?? 0
-  const sumTotal = cards.reduce((s, c) => s + c.total_actual_cost, 0)
-  const sumToday = cards.reduce((s, c) => s + c.today_actual_cost, 0)
-  const diffTotal = Math.max(0, total - sumTotal)
-  const diffToday = Math.max(0, today - sumToday)
-
-  if (diffTotal > OTHER_THRESHOLD || diffToday > OTHER_THRESHOLD) {
-    cards.push({
-      platform: '__other__',
-      total_actual_cost: diffTotal,
-      today_actual_cost: diffToday,
-      total_requests: 0,
-      total_tokens: 0,
-      isOther: true,
-    })
-  }
 
   return cards
 })
@@ -275,6 +247,7 @@ const formatBalance = (b: number) =>
 const formatNumber = (n: number) => n.toLocaleString()
 const formatCost = (c: number) => c.toFixed(4)
 const formatTokens = (t: number) => {
+  if (t >= 1_000_000_000) return `${(t / 1_000_000_000).toFixed(2)}B`
   if (t >= 1_000_000) return `${(t / 1_000_000).toFixed(1)}M`
   if (t >= 1000) return `${(t / 1000).toFixed(1)}K`
   return t.toString()
@@ -284,6 +257,7 @@ const formatDuration = (ms: number) => ms >= 1000 ? `${(ms / 1000).toFixed(2)}s`
 
 <style scoped>
 .console-stats { min-width: 0; }
+.console-platform-empty { padding: 48px 0; color: var(--console-muted); font-size: 14px; text-align: center; }
 .console-stat-strip, .console-telemetry {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

@@ -1,6 +1,15 @@
 <template>
   <AppLayout>
-    <div class="space-y-6">
+    <div class="console-subscriptions">
+      <header class="console-subscriptions-heading">
+        <div class="console-subscriptions-heading__icon" aria-hidden="true">
+          <Icon name="creditCard" size="lg" />
+        </div>
+        <div class="min-w-0">
+          <h1>{{ t('userSubscriptions.title') }}</h1>
+          <span>{{ t('userSubscriptions.description') }}</span>
+        </div>
+      </header>
       <!-- Loading State -->
       <div v-if="loading" class="flex justify-center py-12">
         <div
@@ -9,9 +18,9 @@
       </div>
 
       <!-- Empty State -->
-      <div v-else-if="subscriptions.length === 0" class="card p-12 text-center">
+      <div v-else-if="subscriptions.length === 0" class="console-subscriptions-empty">
         <div
-          class="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-gray-100 dark:bg-dark-700"
+          class="console-subscriptions-empty__icon"
         >
           <Icon name="creditCard" size="xl" class="text-gray-400" />
         </div>
@@ -24,16 +33,16 @@
       </div>
 
       <!-- Subscriptions Grid -->
-      <div v-else class="grid gap-6 lg:grid-cols-2">
+      <div v-else class="console-subscriptions-grid">
         <div
           v-for="subscription in subscriptions"
           :key="subscription.id"
-          class="overflow-hidden rounded-2xl border bg-white dark:bg-dark-800"
+          class="console-subscription-card"
           :class="platformBorderClass(subscription.group?.platform || '')"
         >
           <!-- Header -->
           <div
-            class="flex items-center justify-between border-b border-gray-100 p-4 dark:border-dark-700"
+            class="console-subscription-card__header"
           >
             <div class="flex items-center gap-3">
               <div :class="['h-1.5 w-1.5 shrink-0 rounded-full', platformAccentDotClass(subscription.group?.platform || '')]" />
@@ -60,7 +69,7 @@
             <div class="flex items-center gap-2">
               <span
                 :class="[
-                  'rounded-full px-2 py-0.5 text-xs font-medium',
+                  'console-subscription-status rounded-full px-2 py-0.5 text-xs font-medium',
                   subscription.status === 'active'
                     ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
                     : subscription.status === 'expired'
@@ -72,16 +81,17 @@
               </span>
               <button
                 v-if="subscription.status === 'active'"
-                :class="['rounded-lg px-3 py-1.5 text-xs font-semibold text-white transition-colors', platformButtonClass(subscription.group?.platform || '')]"
+                :class="['console-subscription-renew', platformButtonClass(subscription.group?.platform || '')]"
                 @click="router.push({ path: '/purchase', query: { tab: 'subscription', group: String(subscription.group_id) } })"
               >
+                <Icon name="refresh" size="xs" />
                 {{ t('payment.renewNow') }}
               </button>
             </div>
           </div>
 
           <!-- Usage Progress -->
-          <div class="space-y-4 p-4">
+          <div class="console-subscription-card__body">
             <!-- Expiration Info -->
             <div v-if="subscription.expires_at" class="flex items-center justify-between text-sm">
               <span class="text-gray-500 dark:text-dark-400">{{
@@ -226,7 +236,7 @@
                 !subscription.group?.weekly_limit_usd &&
                 !subscription.group?.monthly_limit_usd
               "
-              class="flex items-center justify-center rounded-xl bg-gradient-to-r from-emerald-50 to-teal-50 py-6 dark:from-emerald-900/20 dark:to-teal-900/20"
+              class="console-unlimited-quota"
             >
               <div class="flex items-center gap-3">
                 <span class="text-4xl text-emerald-600 dark:text-emerald-400">∞</span>
@@ -392,3 +402,193 @@ onMounted(() => {
   loadSubscriptions()
 })
 </script>
+
+<style scoped>
+.console-subscriptions {
+  --subscriptions-bg: var(--console-bg);
+  --subscriptions-surface: var(--console-surface);
+  --subscriptions-line: var(--console-line);
+  --subscriptions-text: var(--console-text);
+  --subscriptions-muted: var(--console-muted);
+  --subscriptions-accent: var(--console-accent);
+  --subscriptions-accent-soft: var(--console-accent-soft);
+  --subscriptions-amber: var(--console-amber);
+  display: grid;
+  gap: 18px;
+  min-width: 0;
+  color: var(--subscriptions-text);
+  letter-spacing: 0;
+}
+
+.console-subscriptions-heading {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--subscriptions-line);
+}
+
+.console-subscriptions-heading__icon,
+.console-subscriptions-empty__icon {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid var(--subscriptions-line);
+  border-radius: 6px;
+  color: var(--subscriptions-accent);
+  background: var(--subscriptions-surface);
+}
+
+.console-subscriptions-heading p {
+  margin: 0;
+  color: var(--subscriptions-muted);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.console-subscriptions-heading h1 {
+  margin: 2px 0 0;
+  color: var(--subscriptions-text);
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.console-subscriptions-heading span {
+  display: block;
+  margin-top: 4px;
+  color: var(--subscriptions-muted);
+  font-size: 13px;
+}
+
+.console-subscriptions-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.console-subscription-card {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--subscriptions-line);
+  border-radius: 8px;
+  background: var(--subscriptions-surface);
+}
+
+.console-subscription-card__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--subscriptions-line);
+  background: var(--subscriptions-bg);
+}
+
+.console-subscription-card__header > div:first-child {
+  min-width: 0;
+}
+
+.console-subscription-card__header h3,
+.console-subscription-card__header p {
+  overflow-wrap: anywhere;
+}
+
+.console-subscription-card__body {
+  display: grid;
+  gap: 16px;
+  padding: 16px;
+}
+
+.console-subscription-status {
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.console-subscription-renew {
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 5px 9px;
+  border: 1px solid var(--subscriptions-accent);
+  border-radius: 5px;
+  color: var(--subscriptions-accent) !important;
+  background: var(--subscriptions-surface) !important;
+  font-size: 12px;
+  font-weight: 650;
+  transition: background-color 120ms ease;
+}
+
+.console-subscription-renew:hover {
+  background: var(--subscriptions-accent-soft) !important;
+}
+
+.console-unlimited-quota {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 104px;
+  padding: 20px;
+  border: 1px dashed var(--subscriptions-line);
+  border-radius: 6px;
+  background: var(--subscriptions-accent-soft);
+}
+
+.console-subscriptions-empty {
+  padding: 56px 20px;
+  border: 1px solid var(--subscriptions-line);
+  border-radius: 8px;
+  background: var(--subscriptions-surface);
+  text-align: center;
+}
+
+.console-subscriptions-empty__icon {
+  width: 48px;
+  height: 48px;
+  margin: 0 auto 14px;
+}
+
+@media (max-width: 1023px) {
+  .console-subscriptions-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 479px) {
+  .console-subscriptions-heading__icon {
+    display: none;
+  }
+
+  .console-subscriptions-heading h1 {
+    font-size: 21px;
+  }
+
+  .console-subscription-card__header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .console-subscription-card__header > div:last-child {
+    justify-content: space-between;
+  }
+
+  .console-subscription-card__header > div:first-child > div {
+    align-items: flex-start;
+  }
+}
+
+@media (max-width: 374px) {
+  .console-subscription-card__header,
+  .console-subscription-card__body {
+    padding: 13px;
+  }
+
+  .console-subscription-card__header h3 + span {
+    flex-shrink: 0;
+  }
+}
+</style>

@@ -1,6 +1,6 @@
 <template>
   <div
-    class="flex items-center justify-between border-t border-gray-200 bg-white px-4 py-3 dark:border-dark-700 dark:bg-dark-800 sm:px-6"
+    class="table-pagination flex items-center justify-between border-t border-gray-200 bg-white px-4 py-3 dark:border-dark-700 dark:bg-dark-800 sm:px-6"
   >
     <div class="flex flex-1 items-center justify-between sm:hidden">
       <!-- Mobile pagination -->
@@ -230,7 +230,7 @@ const handlePageSizeChange = (value: string | number | boolean | null) => {
 }
 
 const submitJump = () => {
-  const value = jumpPage.value.trim()
+  const value = String(jumpPage.value).trim()
   if (!value) return
   const pageNum = Number.parseInt(value, 10)
   if (Number.isNaN(pageNum)) return

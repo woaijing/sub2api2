@@ -96,6 +96,18 @@ export function consolePreviewPlugin(): Plugin {
           res.end()
           return
         }
+        if (path === '/admin/keys') {
+          res.writeHead(302, { Location: '/keys' })
+          res.end()
+          return
+        }
+        if (path === '/__preview/admin' || path === '/__preview/user') {
+          const role = path.endsWith('/admin') ? 'admin' : 'user'
+          api.handle('POST', '/api/v1/__preview/role', new URLSearchParams(), { role })
+          res.writeHead(302, { Location: role === 'admin' ? '/admin/dashboard' : '/dashboard' })
+          res.end()
+          return
+        }
         if (!/^\/(api|v1|setup)(\/|$)/i.test(path)) { next(); return }
         void (async () => {
           try {
@@ -129,6 +141,7 @@ export function consolePreviewPlugin(): Plugin {
             if (!localStorage.getItem('theme')) localStorage.setItem('theme', 'light');
             if (!localStorage.getItem('sub2api_locale')) localStorage.setItem('sub2api_locale', 'zh');
             localStorage.setItem('user_guide_${api.user.id}_user_v4_interactive', 'true');
+            localStorage.setItem('admin_guide_${api.user.id}_admin_v4_interactive', 'true');
             document.documentElement.classList.toggle('dark', localStorage.getItem('theme') === 'dark');
             document.documentElement.lang = localStorage.getItem('sub2api_locale');
             document.addEventListener('DOMContentLoaded', function() {

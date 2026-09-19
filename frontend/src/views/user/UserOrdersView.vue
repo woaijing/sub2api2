@@ -1,28 +1,34 @@
 <template>
   <AppLayout>
-    <div class="space-y-4">
-      <!-- Filters -->
-      <div class="card p-4">
-        <div class="flex flex-wrap items-center gap-3">
-          <Select v-model="currentFilter" :options="statusFilters" class="w-36" @change="fetchOrders" />
-          <div class="flex flex-1 items-center justify-end gap-2">
-            <button @click="fetchOrders" :disabled="loading" class="btn btn-secondary" :title="t('common.refresh')">
-              <Icon name="refresh" size="md" :class="loading ? 'animate-spin' : ''" />
-            </button>
-            <button class="btn btn-primary" @click="router.push('/purchase')">{{ t('payment.result.backToRecharge') }}</button>
-          </div>
+    <div class="console-orders">
+      <header class="console-orders-heading">
+        <div>
+          <h1>{{ t('nav.myOrders') }} <span>{{ pagination.total }}</span></h1>
         </div>
+        <button class="btn btn-primary" @click="router.push('/purchase')">
+          <Icon name="creditCard" size="sm" />
+          {{ t('payment.result.backToRecharge') }}
+        </button>
+      </header>
+      <!-- Filters -->
+      <div class="console-orders-toolbar">
+        <div class="flex min-w-0 flex-1 flex-wrap items-center gap-3">
+          <Select v-model="currentFilter" :options="statusFilters" class="w-36" @change="handlePageChange(1)" />
+        </div>
+        <button @click="fetchOrders" :disabled="loading" class="btn btn-secondary btn-icon" :title="t('common.refresh')" :aria-label="t('common.refresh')">
+          <Icon name="refresh" size="md" :class="loading ? 'animate-spin' : ''" />
+        </button>
       </div>
 
       <!-- Table -->
       <OrderTable :orders="orders" :loading="loading">
         <template #actions="{ row }">
           <div class="flex items-center gap-2">
-            <button v-if="row.status === 'PENDING'" @click="handleCancel(row.id)" class="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-yellow-600 hover:bg-yellow-50 dark:text-yellow-400 dark:hover:bg-yellow-900/20">
+            <button v-if="row.status === 'PENDING'" @click="handleCancel(row.id)" class="console-order-action console-order-action--warning">
               <Icon name="x" size="sm" />
               <span>{{ t('payment.orders.cancel') }}</span>
             </button>
-            <button v-if="canRequestRefund(row)" @click="openRefundDialog(row)" class="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-purple-600 hover:bg-purple-50 dark:text-purple-400 dark:hover:bg-purple-900/20">
+            <button v-if="canRequestRefund(row)" @click="openRefundDialog(row)" class="console-order-action">
               <Icon name="dollar" size="sm" />
               <span>{{ t('payment.orders.requestRefund') }}</span>
             </button>
@@ -187,3 +193,170 @@ async function loadRefundEligibility() {
 
 onMounted(() => { fetchOrders(); loadRefundEligibility() })
 </script>
+
+<style scoped>
+.console-orders {
+  --orders-bg: var(--console-bg);
+  --orders-surface: var(--console-surface);
+  --orders-line: var(--console-line);
+  --orders-text: var(--console-text);
+  --orders-muted: var(--console-muted);
+  --orders-accent: var(--console-accent);
+  --orders-accent-soft: var(--console-accent-soft);
+  --orders-amber: var(--console-amber);
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+  color: var(--orders-text);
+  letter-spacing: 0;
+}
+
+.console-orders-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--orders-line);
+}
+
+.console-orders-heading p {
+  margin: 0 0 3px;
+  color: var(--orders-muted);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.console-orders-heading h1 {
+  margin: 0;
+  color: var(--orders-text);
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.console-orders-heading h1 span {
+  display: inline-flex;
+  min-width: 24px;
+  min-height: 24px;
+  align-items: center;
+  justify-content: center;
+  margin-left: 7px;
+  padding: 2px 6px;
+  border: 1px solid var(--orders-line);
+  border-radius: 4px;
+  color: var(--orders-muted);
+  background: var(--orders-surface);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  vertical-align: 3px;
+}
+
+.console-orders-heading .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.console-orders-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--orders-line);
+  border-radius: 8px;
+  background: var(--orders-surface);
+}
+
+.console-order-action {
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 8px;
+  border: 1px solid var(--orders-line);
+  border-radius: 5px;
+  color: var(--orders-accent);
+  background: transparent;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.console-order-action:hover {
+  border-color: var(--orders-accent);
+  background: var(--orders-accent-soft);
+}
+
+.console-order-action--warning {
+  color: var(--orders-amber);
+}
+
+.console-order-action--warning:hover {
+  border-color: var(--orders-amber);
+  background: color-mix(in srgb, var(--orders-amber) 10%, transparent);
+}
+
+.console-orders :deep(.payment-order-table) {
+  overflow: hidden;
+  border: 1px solid var(--orders-line);
+  border-radius: 8px;
+  background: var(--orders-surface);
+}
+
+.console-orders :deep(.payment-order-table .table-wrapper) {
+  min-height: 240px;
+}
+
+.console-orders :deep(.payment-order-number) {
+  display: inline-block;
+  max-width: 220px;
+  overflow: hidden;
+  color: var(--orders-text);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+}
+
+.console-orders :deep(.payment-order-status) {
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  background: transparent;
+}
+
+@media (max-width: 639px) {
+  .console-orders-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .console-orders-heading .btn {
+    justify-content: center;
+  }
+
+  .console-orders-toolbar :deep(.select-trigger) {
+    min-height: 42px;
+  }
+
+  .console-orders :deep(.payment-order-table) {
+    overflow: visible;
+    border: 0;
+    background: transparent;
+  }
+}
+
+@media (max-width: 374px) {
+  .console-orders-heading h1 {
+    font-size: 21px;
+  }
+
+  .console-orders-toolbar {
+    align-items: stretch;
+  }
+
+  .console-orders-toolbar > div,
+  .console-orders-toolbar :deep(.select-trigger) {
+    width: 100%;
+  }
+}
+</style>

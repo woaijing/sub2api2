@@ -1,0 +1,65 @@
+<template>
+  <section class="console-model-card" :aria-label="t('dashboard.modelDistribution')" :aria-busy="loading">
+    <h2>{{ t('dashboard.modelDistribution') }}</h2>
+    <p class="console-model-period">{{ startDate }} / {{ endDate }}</p>
+    <div v-if="loading" class="console-model-state"><LoadingSpinner size="sm" /></div>
+    <p v-else-if="error" class="console-model-state">{{ t('dashboard.chartsFailed') }}</p>
+    <div v-else-if="modelData" class="console-model-summary">
+      <div class="console-model-ring"><Doughnut :data="modelData" :options="options" /></div>
+      <ol class="console-model-legend">
+        <li v-for="(model, index) in rankedModels.slice(0, 3)" :key="model.model" :title="`${model.model}: ${formatTokensK(model.total_tokens)} tokens`">
+          <span class="console-model-dot" :style="{ background: colors[index] }" />
+          <span class="console-model-label">{{ model.model }}</span>
+          <span>{{ (model.total_tokens / totalTokens * 100).toFixed(1) }}%</span>
+        </li>
+      </ol>
+    </div>
+    <p v-else class="console-model-state">{{ t('dashboard.noDataAvailable') }}</p>
+  </section>
+</template>
+
+<script setup lang="ts">
+import { computed } from 'vue'
+import { usePreferredReducedMotion } from '@vueuse/core'
+import { useI18n } from 'vue-i18n'
+import { Chart as ChartJS, ArcElement, Tooltip, type ChartOptions } from 'chart.js'
+import { Doughnut } from 'vue-chartjs'
+import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
+import type { ModelStat } from '@/types'
+import { formatTokensK } from '@/utils/format'
+import { chartSeriesColors } from '@/utils/chartColors'
+
+ChartJS.register(ArcElement, Tooltip)
+const props = defineProps<{ models: ModelStat[]; startDate: string; endDate: string; loading: boolean; error?: boolean }>()
+const { t } = useI18n()
+const motion = usePreferredReducedMotion()
+const colors = chartSeriesColors
+const rankedModels = computed(() => props.models.filter(model => Number.isFinite(model.total_tokens) && model.total_tokens > 0).slice().sort((a, b) => b.total_tokens - a.total_tokens))
+const totalTokens = computed(() => rankedModels.value.reduce((sum, model) => sum + model.total_tokens, 0))
+const modelData = computed(() => totalTokens.value > 0 ? {
+  labels: rankedModels.value.map(model => model.model),
+  datasets: [{ data: rankedModels.value.map(model => model.total_tokens), backgroundColor: rankedModels.value.map((_, index) => colors[index % colors.length]), borderWidth: 0 }],
+} : null)
+const options = computed<ChartOptions<'doughnut'>>(() => ({
+  responsive: true,
+  maintainAspectRatio: false,
+  cutout: '74%',
+  animation: { duration: motion.value === 'reduce' ? 0 : 160 },
+  plugins: { legend: { display: false }, tooltip: { callbacks: {
+    label: context => `${context.label}: ${formatTokensK(context.parsed)} tokens`,
+  } } },
+}))
+</script>
+
+<style scoped>
+.console-model-card { min-width: 0; padding: 18px 16px; border: 1px solid var(--console-line); border-radius: 8px; background: var(--console-surface); }
+.console-model-card h2 { font-size: 12px; font-weight: 500; color: var(--console-muted); }
+.console-model-period { margin-top: 6px; font-size: 10px; color: var(--console-muted); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.console-model-summary { display: flex; align-items: center; gap: 12px; margin-top: 18px; }
+.console-model-ring { width: 68px; height: 68px; flex: 0 0 68px; }
+.console-model-legend { flex: 1; min-width: 0; display: grid; gap: 8px; }
+.console-model-legend li { display: flex; align-items: center; gap: 5px; min-width: 0; font-size: 10px; color: var(--console-muted); font-variant-numeric: tabular-nums; }
+.console-model-dot { width: 5px; height: 5px; border-radius: 50%; flex: 0 0 auto; }
+.console-model-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--console-text); }
+.console-model-state { min-height: 88px; display: grid; place-items: center; color: var(--console-muted); font-size: 12px; }
+</style>

@@ -1,0 +1,216 @@
+.console-workspace .console-account-page {
+  min-width: 0;
+  color: var(--console-text);
+}
+
+.console-account-heading {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding-block: 4px 24px;
+  border-bottom: 1px solid var(--console-line);
+}
+
+.console-account-index {
+  color: var(--console-muted);
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.console-account-heading h1 {
+  color: var(--console-text);
+  font-size: 26px;
+  font-weight: 650;
+  line-height: 34px;
+  overflow-wrap: anywhere;
+}
+
+.console-account-heading p {
+  max-width: 640px;
+  color: var(--console-muted);
+  font-size: 13px;
+  line-height: 22px;
+}
+
+.console-workspace .console-account-section,
+.console-workspace .console-profile .card,
+.console-workspace .console-redeem > .card {
+  min-width: 0;
+  padding-block: 20px;
+  border: 0;
+  border-top: 1px solid var(--console-line);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.console-workspace .console-profile > .card,
+.console-workspace .console-profile > .card > .px-6,
+.console-workspace .console-redeem > .card > .p-6 {
+  padding-inline: 0;
+}
+
+.console-workspace .console-profile [data-testid='profile-overview-hero'] {
+  border-top: 0;
+  padding: 0;
+}
+
+.console-workspace .console-profile [data-testid='profile-overview-hero'] > div {
+  padding: 4px 0 0;
+}
+
+.console-workspace .console-profile .profile-identity-avatar {
+  width: 48px;
+  height: 48px;
+  border: 1px solid var(--console-line);
+  border-radius: 6px;
+  background: var(--console-accent-soft);
+  color: var(--console-accent);
+  box-shadow: none;
+}
+
+.console-workspace .console-profile .profile-identity-metrics {
+  gap: 1px;
+  border-block: 1px solid var(--console-line);
+  background: var(--console-line);
+}
+
+.console-workspace .console-profile .profile-identity-metrics > div {
+  border-radius: 0;
+  background: var(--console-surface);
+  box-shadow: none;
+}
+
+.console-account-page [class*='tracking-'] {
+  letter-spacing: 0;
+}
+
+.console-workspace .console-provider-payment > .card {
+  padding-inline: 0;
+  border-inline: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.console-workspace .console-provider-amount {
+  background: var(--console-surface);
+}
+
+.console-workspace .console-provider-amount > p:first-child {
+  color: var(--console-muted);
+}
+
+.console-workspace .console-provider-amount > p + p {
+  color: var(--console-accent);
+}
+
+.console-account-support {
+  padding: 16px;
+  border-left: 2px solid var(--console-accent);
+  background: var(--console-accent-soft);
+  overflow-wrap: anywhere;
+}
+
+.console-balance-strip {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  border-block: 1px solid var(--console-line);
+  background: var(--console-surface);
+}
+
+.console-balance-strip > div {
+  min-width: 0;
+  padding: 20px;
+}
+
+.console-balance-strip > div + div {
+  border-left: 1px solid var(--console-line);
+}
+
+.console-account-label {
+  color: var(--console-muted);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.console-account-balance,
+.console-account-number {
+  margin-top: 8px;
+  color: var(--console-accent);
+  font-size: 28px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  line-height: 36px;
+  overflow-wrap: anywhere;
+}
+
+.console-account-number {
+  color: var(--console-text);
+}
+
+.console-account-number span {
+  color: var(--console-muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.console-workspace .console-affiliate-metrics {
+  gap: 1px;
+  border-block: 1px solid var(--console-line);
+  background: var(--console-line);
+}
+
+.console-workspace .console-affiliate-metrics > .card {
+  min-width: 0;
+  border: 0;
+  border-radius: 0;
+  background: var(--console-surface);
+  font-variant-numeric: tabular-nums;
+}
+
+.console-workspace .console-account-page :is(.text-gray-900, .text-gray-700, .text-primary-800) {
+  color: var(--console-text);
+}
+
+.console-workspace .console-account-page :is(.text-gray-400, .text-gray-500, .text-gray-600) {
+  color: var(--console-muted);
+}
+
+.console-workspace .console-account-page :is(.text-primary-500, .text-primary-600, .text-primary-700) {
+  color: var(--console-accent);
+}
+
+.console-workspace .console-account-page :is(.bg-gray-50, .bg-primary-50, .bg-primary-100) {
+  background: var(--console-accent-soft);
+}
+
+.console-workspace .console-account-page :is(.border-gray-100, .border-gray-200, .border-primary-200) {
+  border-color: var(--console-line);
+}
+
+.console-workspace .console-account-page .rounded-xl {
+  border-radius: 6px;
+}
+
+.console-workspace .console-redeem > .border-red-200 {
+  border-left: 2px solid #d34040;
+  padding-left: 16px;
+}
+
+.console-workspace .console-redeem > .border-emerald-200 {
+  border-left: 2px solid var(--console-accent);
+  padding-left: 16px;
+}
+
+@media (max-width: 479px) {
+  .console-balance-strip > div {
+    padding: 16px 12px;
+  }
+
+  .console-account-balance,
+  .console-account-number {
+    font-size: 24px;
+  }
+}
