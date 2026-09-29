@@ -857,6 +857,7 @@ var ProviderSet = wire.NewSet(
 	NewBillingService,
 	ProvideBillingCacheService,
 	NewAnnouncementService,
+	ProvideTicketService,
 	NewAdminService,
 	NewGatewayService,
 	NewOpenAIGatewayService,
@@ -951,11 +952,12 @@ var ProviderSet = wire.NewSet(
 	ProvideIdempotencyCleanupService,
 	ProvideScheduledTestService,
 	ProvideScheduledTestRunnerService,
+	NewGroupQualityCheckService,
 	NewGroupCapacityService,
 	NewChannelService,
 	wire.Bind(new(ChannelCacheInvalidator), new(*ChannelService)),
 	NewModelPricingResolver,
-	NewModelPlazaService,
+	ProvideModelPlazaService,
 	NewContentModerationService,
 	NewAffiliateService,
 	ProvidePaymentConfigService,
@@ -1044,9 +1046,10 @@ func ProvideChannelMonitorRunner(
 
 // ProvideChannelMonitorV2Service wires settings for user-facing privacy flags
 // (e.g. hide RPM/TPM throughput).
-func ProvideChannelMonitorV2Service(repo ChannelMonitorV2Repository, settingService *SettingService) *ChannelMonitorV2Service {
+func ProvideChannelMonitorV2Service(repo ChannelMonitorV2Repository, settingService *SettingService, quality *GroupQualityCheckService) *ChannelMonitorV2Service {
 	svc := NewChannelMonitorV2Service(repo)
 	svc.SetRuntimeReader(settingService)
+	svc.SetGroupQualityCheckService(quality)
 	return svc
 }
 

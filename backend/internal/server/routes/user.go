@@ -24,6 +24,7 @@ func RegisterUserRoutes(
 	authenticated.Use(panelRateLimiter.Global())
 	// 用户管理面变更类操作入审计（含 TOTP 启用/禁用、step-up 验证、密码修改等安全事件）
 	authenticated.Use(gin.HandlerFunc(auditLog))
+	registerTicketRoutes(authenticated, h.Ticket)
 	{
 		// 用户接口
 		user := authenticated.Group("/user")
@@ -40,9 +41,6 @@ func RegisterUserRoutes(
 			user.POST("/auth-identities/bind/start", h.User.StartIdentityBinding)
 			user.GET("/api-keys/:id/usage/daily", panelRateLimiter.Heavy(), h.Usage.GetMyAPIKeyDailyUsage)
 			user.GET("/platform-quotas", h.User.GetMyPlatformQuotas)
-			user.GET("/cf-allowlist", h.User.GetCFAllowlist)
-			user.POST("/cf-allowlist", h.User.AddCFAllowlist)
-			user.DELETE("/cf-allowlist/:id", h.User.DeleteCFAllowlist)
 
 			// 通知邮箱管理
 			notifyEmail := user.Group("/notify-email")
@@ -157,6 +155,8 @@ func RegisterUserRoutes(
 			monitorV2.GET("/matrix", h.ChannelMonitorV2.Matrix)
 			monitorV2.GET("/errors", h.ChannelMonitorV2.Errors)
 			monitorV2.GET("/users", h.ChannelMonitorV2.Users)
+			monitorV2.GET("/quality-events", h.ChannelMonitorV2.QualityEvents)
+			monitorV2.GET("/quality-events/:id/artwork", h.ChannelMonitorV2.QualityArtwork)
 		}
 	}
 }

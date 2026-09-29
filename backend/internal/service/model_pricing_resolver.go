@@ -147,6 +147,17 @@ func matchGroupModelPricing(group *Group, model string) *ChannelModelPricing {
 	if group == nil {
 		return nil
 	}
+	if pricing := matchGroupModelPricingLiteral(group, model); pricing != nil {
+		return pricing
+	}
+	normalized := normalizeKnownOpenAICodexModel(model)
+	if normalized == "" || strings.EqualFold(normalized, strings.TrimSpace(model)) {
+		return nil
+	}
+	return matchGroupModelPricingLiteral(group, normalized)
+}
+
+func matchGroupModelPricingLiteral(group *Group, model string) *ChannelModelPricing {
 	model = normalizeChannelPricingModelName(model)
 	var wildcard *ChannelModelPricing
 	for i := range group.ModelPricing {
@@ -249,6 +260,7 @@ func (r *ModelPricingResolver) applyTokenOverrides(chPricing *ChannelModelPricin
 	resolved.BasePricing.FlexMultiplier = chPricing.FlexMultiplier
 	if chPricing.MaxReasoningEffortMultiplier != nil {
 		resolved.BasePricing.MaxReasoningEffortMultiplier = chPricing.MaxReasoningEffortMultiplier
+		resolved.BasePricing.ReasoningEffortMultipliers = map[string]float64{"max": *chPricing.MaxReasoningEffortMultiplier}
 	}
 	// 渠道定价覆盖一切：显式配置则用配置值，未配置则归零（不回退到 LiteLLM）
 	if chPricing.ImageOutputPrice != nil {

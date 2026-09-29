@@ -1,11 +1,13 @@
 <template>
   <AppLayout>
     <div class="console-dashboard">
-      <header class="console-masthead">
-        <h1>{{ t('dashboard.overview') }}</h1>
-        <button class="btn btn-secondary console-overview-refresh" :disabled="loading || loadingCharts" @click="refreshAll">
+      <header class="console-masthead console-editorial-heading">
+        <div class="console-editorial-copy">
+          <span class="console-editorial-index" aria-hidden="true">01 / OVERVIEW</span>
+          <h1>{{ t('dashboard.overview') }}</h1>
+        </div>
+        <button class="btn btn-secondary btn-icon console-overview-refresh" :title="t('common.refresh')" :aria-label="t('common.refresh')" :disabled="loading || loadingCharts" @click="refreshAll">
           <Icon name="refresh" size="sm" :class="{ 'animate-spin': loading || loadingCharts }" />
-          {{ t('common.refresh') }}
         </button>
       </header>
       <div v-if="loading && !stats" class="console-loading"><LoadingSpinner /></div>

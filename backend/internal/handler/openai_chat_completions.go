@@ -156,6 +156,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 	sameAccountRetryCount := make(map[int64]int)
 	var lastFailoverErr *service.UpstreamFailoverError
 	oauth429FailoverState := service.OpenAIOAuth429FailoverState{FillScheduling: true}
+	accountSlotBusySeen := false
 
 	// 分组利润控制：chat completions 文本入口请求级装门并固定 pricingAt。
 	ccPricingCtx := c.Request.Context()
@@ -242,6 +243,8 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 			} else {
 				if lastFailoverErr != nil {
 					h.handleFailoverExhausted(c, lastFailoverErr, streamStarted)
+				} else if accountSlotBusySeen {
+					h.handleOpenAIAccountSlotBusyExhausted(c, streamStarted, reqLog)
 				} else {
 					h.handleStreamingAwareError(c, http.StatusBadGateway, "api_error", "Upstream request failed", streamStarted)
 				}
@@ -249,6 +252,10 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 			}
 		}
 		if selection == nil || selection.Account == nil {
+			if accountSlotBusySeen && lastFailoverErr == nil {
+				h.handleOpenAIAccountSlotBusyExhausted(c, streamStarted, reqLog)
+				return
+			}
 			cls := classifyOpenAICompatibleNoAccountErrorFromGin(c, h.gatewayService, apiKey, reqModel, reqModel)
 			if !cls.ModelNotFound {
 				markOpsRoutingCapacityLimited(c)
@@ -263,16 +270,11 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 		setOpsSelectedAccount(c, account.ID, account.Platform)
 
 		accountReleaseFunc, slotResult := h.acquireResponsesAccountSlot(c, apiKey.GroupID, sessionHash, selection, reqStream, &streamStarted, reqLog)
-		if slotResult == openAISlotAcquireProfitVetoed {
-			// 利润终检否决：排除该账号重新选号；否决次数达上限则按无可用账号终止。
-			if !recordOpenAIProfitVeto(failedAccountIDs, account.ID, &profitVetoCount) {
-				h.handleOpenAIProfitVetoExhausted(c, streamStarted, reqLog, profitVetoCount)
-				return
-			}
-			continue
-		}
-		if slotResult != openAISlotAcquireOK {
+		switch h.openAISlotLoopAction(c, slotResult, account.ID, apiKey.GroupID, sessionHash, failedAccountIDs, &profitVetoCount, streamStarted, reqLog, &accountSlotBusySeen) {
+		case openAISlotLoopStop:
 			return
+		case openAISlotLoopRotate:
+			continue
 		}
 
 		service.SetOpsLatencyMs(c, service.OpsRoutingLatencyMsKey, time.Since(routingStart).Milliseconds())
@@ -411,6 +413,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 					}
 					h.gatewayService.RecordOpenAIAccountSwitch()
 					failedAccountIDs[account.ID] = struct{}{}
+					h.clearStickyAfterUpstreamAccountSwitch(c.Request.Context(), apiKey.GroupID, sessionHash)
 					lastFailoverErr = failoverErr
 					if !fillSchedulingSwitchAllowed(switchCount, maxAccountSwitches) {
 						submitChatUsage(result)
@@ -480,8 +483,8 @@ func resolveOpenAIUpstreamEndpoint(c *gin.Context, account *service.Account, res
 	if endpoint := service.GetActualOpenAIUpstreamEndpoint(c); endpoint != "" {
 		return endpoint
 	}
-	if account != nil && account.Type == service.AccountTypeAPIKey &&
-		!openai_compat.ShouldUseResponsesAPI(account.Extra) {
+	if account != nil && (account.IsCloudflareOpenAI() ||
+		(account.Type == service.AccountTypeAPIKey && !openai_compat.ShouldUseResponsesAPI(account.Extra))) {
 		return EndpointChatCompletions
 	}
 	return GetUpstreamEndpoint(c, account.Platform)

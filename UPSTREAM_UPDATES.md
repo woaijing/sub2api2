@@ -147,3 +147,50 @@
 本地预览：在 `frontend` 下运行 `corepack pnpm@9.15.5 run dev:console`，访问
 <http://127.0.0.1:4317/__preview/user> 或 <http://127.0.0.1:4317/__preview/admin> 切换角色。
 预览使用内存演示数据，不连接真实后端，重启会清空操作。
+
+## 2026-09-29: upstream main 2.0.28
+
+Source: `kiss-kedaya/sub2api` main at `7f0af646d4c1e1859fe6f0c909ecfeba240089d9` (`2.0.28`). The upstream history was rewritten, so this update was applied as a file-level three-way sync against the previously imported `cf9ac5e3d` tree.
+
+### Included
+
+- Support tickets, requester statistics, email outbox and user/admin ticket routes.
+- Durable media billing for Grok, billing recovery, and related migrations `243`-`249`.
+- Custom account usage, group quality checks and quality history, scheduled-test quality controls.
+- Cloudflare OpenAI compatibility and OpenAI Responses, WebSocket, images and embeddings fixes.
+- Matching frontend APIs, admin panels, ticket workspace, quality history and legal documents.
+
+### FoxCode retained
+
+- FoxCode public homepage, auth layouts, branding, connection studio and Model Plaza card/catalog presentation.
+- The user access allowlist page and API (`/ip-allowlist`), including its navigation and translations.
+- Existing deleted local analysis scripts remain deleted and are intentionally excluded from this sync.
+- Console workspace routing keeps the FoxCode shell; ticket links are added to the header/sidebar.
+
+### Validation
+
+- Frontend ESLint and `vue-tsc --noEmit` pass.
+- Targeted legal, locale, layout, ticket and Model Plaza tests pass; full Vitest is rerun after the final sync edits.
+
+## 2026-09-30: upstream main 2.0.29
+
+Source: `kiss-kedaya/sub2api` main at `54c9daf6f50aeef0c0f7ff03dce2468d1e99d82f` (`2.0.29`). The upstream branch advanced from `7f0af646d4c1e1859fe6f0c909ecfeba240089d9` and was applied with the same file-level sync process.
+
+### Included
+
+- Responses client-tool compatibility for server tool-use and tool-search discovery records.
+- Antigravity/Codex client-tool lowering and passthrough protocol fixes.
+- Grok tool protocol compatibility adjustment.
+- Release metadata and notes for `2.0.29`.
+
+### FoxCode retained
+
+- FoxCode public/auth pages, console shell, Connection Studio, Model Plaza, allowlist and canvas-related local changes remain in place.
+- The three previously deleted `analysis/*-preview.py` and `analysis/*-visual-check.py` scripts remain deleted and are excluded from this sync commit.
+
+### Validation
+
+- Full frontend Vitest: 329 files and 2487 tests passed.
+- Frontend type build, Vite production build and embedded console texture check passed.
+- Fable 5.1 default max-effort billing remains at 3x, including the no-resolver fallback path.
+- Two service visual-quality tests require a `bash` executable and remain unavailable on this Windows host.

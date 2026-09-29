@@ -181,6 +181,7 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 	jsonKeepaliveStarted := false
 	defer func() { stopJSONKeepalive() }()
 	oauth429FailoverState := service.OpenAIOAuth429FailoverState{FillScheduling: true}
+	accountSlotBusySeen := false
 
 	for {
 		reqLog.Debug("openai.images.account_selecting", zap.Int("excluded_account_count", len(failedAccountIDs)))
@@ -229,12 +230,18 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 			}
 			if lastFailoverErr != nil {
 				h.handleFailoverExhausted(c, lastFailoverErr, streamStarted)
+			} else if accountSlotBusySeen {
+				h.handleOpenAIAccountSlotBusyExhausted(c, streamStarted, reqLog)
 			} else {
 				h.handleFailoverExhaustedSimple(c, 502, streamStarted)
 			}
 			return
 		}
 		if selection == nil || selection.Account == nil {
+			if accountSlotBusySeen && lastFailoverErr == nil {
+				h.handleOpenAIAccountSlotBusyExhausted(c, streamStarted, reqLog)
+				return
+			}
 			cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, clientRequestModel, routingModel, service.PlatformOpenAI)
 			if !cls.ModelNotFound {
 				markOpsRoutingCapacityLimited(c)
@@ -262,16 +269,11 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 		setOpsSelectedAccount(c, account.ID, account.Platform)
 
 		accountReleaseFunc, slotResult := h.acquireResponsesAccountSlot(c, apiKey.GroupID, sessionHash, selection, parsed.Stream, &streamStarted, reqLog)
-		if slotResult == openAISlotAcquireProfitVetoed {
-			// Images 调度不装利润门，此分支实际不可达；防御性排除重选并受同一否决上限约束。
-			if !recordOpenAIProfitVeto(failedAccountIDs, account.ID, &profitVetoCount) {
-				h.handleOpenAIProfitVetoExhausted(c, streamStarted, reqLog, profitVetoCount)
-				return
-			}
-			continue
-		}
-		if slotResult != openAISlotAcquireOK {
+		switch h.openAISlotLoopAction(c, slotResult, account.ID, apiKey.GroupID, sessionHash, failedAccountIDs, &profitVetoCount, streamStarted, reqLog, &accountSlotBusySeen) {
+		case openAISlotLoopStop:
 			return
+		case openAISlotLoopRotate:
+			continue
 		}
 
 		service.SetOpsLatencyMs(c, service.OpsRoutingLatencyMsKey, time.Since(routingStart).Milliseconds())
@@ -427,32 +429,37 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 			upstreamModel = result.UpstreamModel
 		}
 		sessionID := service.ExtractClientSessionID(c)
-		h.submitMandatoryUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
-			if err := h.gatewayService.RecordUsage(ctx, &service.OpenAIRecordUsageInput{
-				Result:             result,
-				APIKey:             apiKey,
-				User:               apiKey.User,
-				Account:            account,
-				Subscription:       subscription,
-				InboundEndpoint:    inboundEndpoint,
-				UpstreamEndpoint:   upstreamEndpoint,
-				UserAgent:          userAgent,
-				IPAddress:          clientIP,
-				RequestPayloadHash: requestPayloadHash,
-				APIKeyService:      h.apiKeyService,
-				QuotaPlatform:      quotaPlatform,
-				SessionID:          sessionID,
-				ChannelUsageFields: clientRequestedUsageFields(c, channelMapping, requestModel, upstreamModel),
-			}); err != nil {
-				logger.L().With(
-					zap.String("component", "handler.openai_gateway.images"),
-					zap.Int64("user_id", subject.UserID),
-					zap.Int64("api_key_id", apiKey.ID),
-					zap.Any("group_id", apiKey.GroupID),
-					zap.String("model", clientRequestModel),
-					zap.Int64("account_id", account.ID),
-				).Error("openai.images.record_usage_failed", zap.Error(err))
-			}
+		usageInput := &service.OpenAIRecordUsageInput{
+			Result:             result,
+			APIKey:             apiKey,
+			User:               apiKey.User,
+			Account:            account,
+			Subscription:       subscription,
+			InboundEndpoint:    inboundEndpoint,
+			UpstreamEndpoint:   upstreamEndpoint,
+			UserAgent:          userAgent,
+			IPAddress:          clientIP,
+			RequestPayloadHash: requestPayloadHash,
+			APIKeyService:      h.apiKeyService,
+			QuotaPlatform:      quotaPlatform,
+			SessionID:          sessionID,
+			ChannelUsageFields: clientRequestedUsageFields(c, channelMapping, requestModel, upstreamModel),
+		}
+		dispatchMediaSettlement(c, func(ctx context.Context) error {
+			return h.gatewayService.RecordMediaUsage(ctx, usageInput)
+		}, func() {
+			h.submitMandatoryUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
+				if err := h.gatewayService.RecordUsage(ctx, usageInput); err != nil {
+					logger.L().With(
+						zap.String("component", "handler.openai_gateway.images"),
+						zap.Int64("user_id", subject.UserID),
+						zap.Int64("api_key_id", apiKey.ID),
+						zap.Any("group_id", apiKey.GroupID),
+						zap.String("model", clientRequestModel),
+						zap.Int64("account_id", account.ID),
+					).Error("openai.images.record_usage_failed", zap.Error(err))
+				}
+			})
 		})
 
 		reqLog.Debug("openai.images.request_completed",

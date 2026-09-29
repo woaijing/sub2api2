@@ -169,6 +169,8 @@ func canDuplicateAccountType(accountType string) bool {
 	switch accountType {
 	case AccountTypeAPIKey, AccountTypeUpstream, AccountTypeBedrock, AccountTypeServiceAccount:
 		return true
+	case AccountTypeCloudflare:
+		return true
 	default:
 		return false
 	}
@@ -472,6 +474,8 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 }
 
 func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccountInput) (*Account, error) {
+	input.Credentials = StripCustomUsageManaged(input.Credentials, CustomUsageCredentialsKey)
+	input.Extra = StripCustomUsageManaged(input.Extra, CustomUsageExtraKey)
 	accountExtra, err := normalizeOpenAILongContextBillingExtra(input.Platform, input.Extra)
 	if err != nil {
 		return nil, err
@@ -522,6 +526,9 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 	if err != nil {
 		return nil, err
 	}
+	if err := validateCloudflareAccount(account); err != nil {
+		return nil, infraerrors.BadRequest("INVALID_CLOUDFLARE_ACCOUNT", err.Error())
+	}
 	if err := s.ValidateAccountGroupBindings(ctx, groupIDs); err != nil {
 		return nil, err
 	}
@@ -565,6 +572,8 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 }
 
 func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *UpdateAccountInput) (*Account, error) {
+	input.Credentials = StripCustomUsageManaged(input.Credentials, CustomUsageCredentialsKey)
+	input.Extra = StripCustomUsageManaged(input.Extra, CustomUsageExtraKey)
 	account, err := s.accountRepo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
@@ -643,6 +652,9 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		}
 		// Strip SSO/password residue that must never sit next to OAuth tokens.
 		account.Credentials = SanitizeStoredCredentials(account.Platform, account.Credentials)
+		if err := validateCloudflareAccount(account); err != nil {
+			return nil, infraerrors.BadRequest("INVALID_CLOUDFLARE_ACCOUNT", err.Error())
+		}
 	}
 	// Extra 使用 map：需要区分“未提供(nil)”与“显式清空({})”。
 	// 关闭配额限制时前端会删除 quota_* 键并提交 extra:{}，此时也必须落库。
@@ -676,6 +688,7 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 			grokBillingExtraKey,
 			UpstreamBillingProbeEnabledExtraKey,
 			UpstreamBillingRateSyncEnabledExtraKey,
+			CustomUsageExtraKey,
 			UpstreamBillingProbeExtraKey,
 			OllamaCloudUsageSessionExtraKey,
 			OllamaCloudUsageAutoRefreshExtraKey,
@@ -895,6 +908,7 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 // UpdateAccountExtra 仅对 Extra JSONB 做 key 级合并，避免覆盖其它运行态键
 // （如 model_rate_limits / passive_usage_* 等）。
 func (s *adminServiceImpl) UpdateAccountExtra(ctx context.Context, id int64, updates map[string]any) error {
+	updates = StripCustomUsageManaged(updates, CustomUsageExtraKey)
 	updates = MergeOpenAICodexTicketExtra(updates, nil)
 	updates = sanitizedCodexFingerprintExtraUpdates(updates)
 	updates = stripOpenAIAutoResetCreditManagedExtra(updates, true)
@@ -922,6 +936,8 @@ func (s *adminServiceImpl) UpdateAccountExtra(ctx context.Context, id int64, upd
 // BulkUpdateAccounts updates multiple accounts in one request.
 // It merges credentials/extra keys instead of overwriting the whole object.
 func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUpdateAccountsInput) (*BulkUpdateAccountsResult, error) {
+	input.Credentials = StripCustomUsageManaged(input.Credentials, CustomUsageCredentialsKey)
+	input.Extra = StripCustomUsageManaged(input.Extra, CustomUsageExtraKey)
 	// Managed probe/session state may only enter through dedicated typed endpoints.
 	input.Extra = MergeOpenAICodexTicketExtra(input.Extra, nil)
 	input.Extra = sanitizedCodexFingerprintExtraUpdates(input.Extra)

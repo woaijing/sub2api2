@@ -1,6 +1,9 @@
 package apicompat
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
 
 // TestAnthropicEventToResponses_TextEmitsContentPart pins that a message text
 // stream emits response.content_part.added, and that it precedes the first
@@ -392,5 +395,94 @@ func TestAnthropicEventToResponses_ItemLifecycleIsBalanced(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestAnthropicEventToResponses_ToolCallArgumentsDoneMatchesDeltas(t *testing.T) {
+	state := NewAnthropicEventToResponsesState()
+	state.Model = "claude-sonnet-4-5"
+
+	var events []ResponsesStreamEvent
+	feed := func(evt *AnthropicStreamEvent) {
+		events = append(events, AnthropicEventToResponsesEvents(evt, state)...)
+	}
+
+	idx := 0
+	feed(&AnthropicStreamEvent{Type: "message_start", Message: &AnthropicResponse{ID: "msg_1"}})
+	feed(&AnthropicStreamEvent{Type: "content_block_start", Index: &idx, ContentBlock: &AnthropicContentBlock{
+		Type: "tool_use", ID: "toolu_1", Name: "grep_search",
+	}})
+	// Anthropic streams arguments as JSON fragments; their sum is the contract
+	// clients diff the done event against.
+	feed(&AnthropicStreamEvent{Type: "content_block_delta", Index: &idx, Delta: &AnthropicDelta{
+		Type: "input_json_delta", PartialJSON: `{"path":`,
+	}})
+	feed(&AnthropicStreamEvent{Type: "content_block_delta", Index: &idx, Delta: &AnthropicDelta{
+		Type: "input_json_delta", PartialJSON: `".","pattern":"TODO"}`,
+	}})
+	feed(&AnthropicStreamEvent{Type: "content_block_stop", Index: &idx})
+
+	var streamed, done string
+	var sawDone bool
+	for _, e := range events {
+		switch e.Type {
+		case "response.function_call_arguments.delta":
+			streamed += e.Delta
+		case "response.function_call_arguments.done":
+			sawDone = true
+			done = e.Arguments
+		}
+	}
+
+	const want = `{"path":".","pattern":"TODO"}`
+	if streamed != want {
+		t.Fatalf("sum of deltas = %q, want %q", streamed, want)
+	}
+	if !sawDone {
+		t.Fatalf("response.function_call_arguments.done was not emitted; got %d events", len(events))
+	}
+	if done != streamed {
+		t.Errorf("function_call_arguments.done arguments = %q, want %q (must equal the streamed deltas)",
+			done, streamed)
+	}
+}
+
+func TestAnthropicEventToResponses_ServerToolUseBecomesWebSearchCall(t *testing.T) {
+	state := NewAnthropicEventToResponsesState()
+	state.Model = "claude-sonnet-4-5"
+
+	var events []ResponsesStreamEvent
+	feed := func(evt *AnthropicStreamEvent) {
+		events = append(events, AnthropicEventToResponsesEvents(evt, state)...)
+	}
+
+	idx := 0
+	feed(&AnthropicStreamEvent{Type: "message_start", Message: &AnthropicResponse{ID: "msg_1"}})
+	feed(&AnthropicStreamEvent{Type: "content_block_start", Index: &idx, ContentBlock: &AnthropicContentBlock{
+		Type: "server_tool_use", ID: "srvtoolu_1", Name: "web_search",
+		Input: json.RawMessage(`{"query":"kedaya.ai"}`),
+	}})
+	feed(&AnthropicStreamEvent{Type: "content_block_stop", Index: &idx})
+	feed(&AnthropicStreamEvent{Type: "content_block_start", Index: &idx, ContentBlock: &AnthropicContentBlock{
+		Type: "web_search_tool_result", ToolUseID: "srvtoolu_1", Content: json.RawMessage(`[]`),
+	}})
+	feed(&AnthropicStreamEvent{Type: "content_block_stop", Index: &idx})
+	feed(&AnthropicStreamEvent{Type: "message_stop"})
+
+	var completed *ResponsesStreamEvent
+	for i := range events {
+		if events[i].Type == "response.completed" {
+			completed = &events[i]
+		}
+	}
+	if completed == nil || completed.Response == nil || len(completed.Response.Output) == 0 {
+		t.Fatalf("response.completed carries no output")
+	}
+	call := completed.Response.Output[0]
+	if call.Type != "web_search_call" {
+		t.Fatalf("output[0].type = %q, want web_search_call", call.Type)
+	}
+	if call.Action == nil || call.Action.Query != "kedaya.ai" {
+		t.Fatalf("action query = %+v, want kedaya.ai", call.Action)
 	}
 }

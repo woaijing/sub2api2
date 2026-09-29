@@ -106,6 +106,15 @@ export default {
       groupsSelected: '{count} groups selected',
       groupsAll: 'All groups',
       groupsEmpty: 'No groups available',
+      qualityTitle: 'Degradation detection',
+      qualityHint:
+        'Enable per-group degradation detection: it reuses the results of the accounts’ existing scheduled test plans instead of sending extra probes. Suspected degraded accounts are paused and restored automatically. Once enabled, the group shows its degradation status in channel status and the model plaza.',
+      qualityStatus: {
+        healthy: 'Healthy',
+        suspect: 'Suspect',
+        unknown: 'Not checked',
+      },
+      qualityToggleFailed: 'Failed to save degradation check toggle',
       errorsTitle: 'Error categories and ignores',
       errorsHint:
         'Checked “ignore” categories are excluded from error rate and health score, but still appear greyed in the error breakdown. Unmatched errors roll into “Other”.',

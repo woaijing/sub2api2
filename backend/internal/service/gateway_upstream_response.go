@@ -286,6 +286,108 @@ func extractUpstreamErrorMessage(body []byte) string {
 	return gjson.GetBytes(body, "message").String()
 }
 
+const upstreamBillingAccountFrozenRefCode int64 = 400901
+
+func isUpstreamBillingAccountFrozen(body []byte) bool {
+	if len(bytes.TrimSpace(body)) == 0 {
+		return false
+	}
+	if isUpstreamBillingAccountFrozenNode(gjson.ParseBytes(body)) {
+		return true
+	}
+	inner := strings.TrimSpace(gjson.GetBytes(body, "error.message").String())
+	if strings.HasPrefix(inner, "{") && isUpstreamBillingAccountFrozenNode(gjson.Parse(inner)) {
+		return true
+	}
+	return isUpstreamBillingAccountFrozenMessage(extractUpstreamErrorMessage(body))
+}
+
+func isUpstreamBillingAccountFrozenNode(node gjson.Result) bool {
+	if !node.Exists() {
+		return false
+	}
+	if isUpstreamBillingAccountFrozenRefCode(node.Get("ref_code")) ||
+		isUpstreamBillingAccountFrozenRefCode(node.Get("error.ref_code")) {
+		return true
+	}
+	code := strings.ToLower(strings.TrimSpace(firstNonEmpty(
+		node.Get("code").String(),
+		node.Get("error.code").String(),
+	)))
+	if code != "billing" {
+		return false
+	}
+	return isUpstreamBillingAccountFrozenMessage(firstNonEmpty(
+		node.Get("message").String(),
+		node.Get("error.message").String(),
+	))
+}
+
+func isUpstreamBillingAccountFrozenRefCode(v gjson.Result) bool {
+	return upstreamRefCodeEquals(v, upstreamBillingAccountFrozenRefCode)
+}
+
+func upstreamRefCodeEquals(v gjson.Result, want int64) bool {
+	if !v.Exists() {
+		return false
+	}
+	switch v.Type {
+	case gjson.Number:
+		return v.Int() == want
+	case gjson.String:
+		n, err := strconv.ParseInt(strings.TrimSpace(v.String()), 10, 64)
+		return err == nil && n == want
+	default:
+		return false
+	}
+}
+
+func isUpstreamBillingAccountFrozenMessage(msg string) bool {
+	msg = strings.TrimSpace(msg)
+	if msg == "" {
+		return false
+	}
+	if strings.Contains(msg, "\u8ba1\u8d39\u8d26\u6237\u5df2\u88ab\u51bb\u7ed3") {
+		return true
+	}
+	low := strings.ToLower(msg)
+	return strings.Contains(low, "billing account has been frozen") ||
+		strings.Contains(low, "billing account is frozen")
+}
+
+// DeepSeek 400001「已达到使用限制或余额不足」是账号额度耗尽，不是参数 400。
+// 必须同时命中 ref_code 和这句话，避免把其它 invalid 400 当成停号。
+const upstreamUsageLimitExhaustedRefCode int64 = 400001
+
+func isUpstreamUsageLimitExhausted(body []byte) bool {
+	if len(bytes.TrimSpace(body)) == 0 {
+		return false
+	}
+	if isUpstreamUsageLimitExhaustedNode(gjson.ParseBytes(body)) {
+		return true
+	}
+	inner := strings.TrimSpace(gjson.GetBytes(body, "error.message").String())
+	return strings.HasPrefix(inner, "{") && isUpstreamUsageLimitExhaustedNode(gjson.Parse(inner))
+}
+
+func isUpstreamUsageLimitExhaustedNode(node gjson.Result) bool {
+	if !node.Exists() {
+		return false
+	}
+	if !upstreamRefCodeEquals(node.Get("ref_code"), upstreamUsageLimitExhaustedRefCode) &&
+		!upstreamRefCodeEquals(node.Get("error.ref_code"), upstreamUsageLimitExhaustedRefCode) {
+		return false
+	}
+	return isUpstreamUsageLimitExhaustedMessage(firstNonEmpty(
+		node.Get("message").String(),
+		node.Get("error.message").String(),
+	))
+}
+
+func isUpstreamUsageLimitExhaustedMessage(msg string) bool {
+	return strings.Contains(strings.TrimSpace(msg), "\u5df2\u8fbe\u5230\u4f7f\u7528\u9650\u5236\u6216\u4f59\u989d\u4e0d\u8db3")
+}
+
 func extractUpstreamErrorCode(body []byte) string {
 	if code := strings.TrimSpace(gjson.GetBytes(body, "error.code").String()); code != "" {
 		return code
@@ -338,6 +440,7 @@ func (s *GatewayService) handleErrorResponse(ctx context.Context, resp *http.Res
 	// Upstream returned a non-success HTTP status; count Ollama Cloud activity.
 	scheduleOllamaCloudUsageActivity(s.deferredService, account)
 	body, readErr := s.readUpstreamErrorBody(resp)
+	defer GuardUpstreamFinancialError(c, resp.StatusCode, body)()
 	if readErr != nil {
 		// 读取失败时 body 可能被截断，错误分类会基于不完整数据；记录日志以便排查，
 		// 避免静默吞掉导致误判。
@@ -515,6 +618,7 @@ func (s *GatewayService) handleRetryExhaustedError(ctx context.Context, resp *ht
 	MarkResponseCommitted(c)
 	// Capture upstream error body before side-effects consume the stream.
 	respBody, _ := s.readUpstreamErrorBody(resp)
+	defer GuardUpstreamFinancialError(c, resp.StatusCode, respBody)()
 	_ = resp.Body.Close()
 	resp.Body = io.NopCloser(bytes.NewReader(respBody))
 
@@ -700,7 +804,7 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 	// 流式预扣补扣：仅当请求持有带 tracker 的活动预扣 guard 时非空；逐帧仅整数
 	// 累加，跨输出窗口时才原子补扣一次，补扣失败中止上游流。
 	streamBalanceGuard, _ := BalancePreauthorizationGuardFromContext(ctx)
-	scanner := bufio.NewScanner(resp.Body)
+	scanner := bufio.NewScanner(newUpstreamErrorFrameReader(resp.Body, resolveUpstreamResponseReadLimit(s.cfg)))
 	// 设置更大的buffer以处理长行
 	maxLineSize := defaultMaxLineSize
 	if s.cfg != nil && s.cfg.Gateway.MaxLineSize > 0 {
@@ -869,6 +973,9 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 		}
 
 		eventType, _ := event["type"].(string)
+		if upstreamFinancialFailureEnvelope([]byte(dataLine)) {
+			return nil, dataLine, nil, &sseStreamErrorEventError{RawData: dataLine}
+		}
 		observer.ObserveAnthropic([]byte(dataLine))
 		if eventName == "" {
 			eventName = eventType
@@ -1377,6 +1484,9 @@ func (s *GatewayService) handleNonStreamingResponse(ctx context.Context, resp *h
 		observer = beginUpstreamResponseModelObservation(c)
 	}
 	observer.ObserveAnthropic(body)
+	if upstreamFinancialFailureEnvelope(body) {
+		defer GuardUpstreamFinancialError(c, 0, body)()
+	}
 
 	// 解析usage
 	var response struct {

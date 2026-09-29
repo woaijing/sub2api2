@@ -12,40 +12,22 @@
       <div v-else-if="status" class="space-y-6">
         <div class="console-account-section console-allowlist-summary">
           <p class="text-sm text-gray-500">{{ t('cfAllowlist.recharged') }}</p>
-          <p class="mt-1 text-3xl font-bold text-gray-900 dark:text-white">
-            ¥{{ status.total_recharged.toFixed(2) }}
-          </p>
+          <p class="mt-1 text-3xl font-bold text-gray-900 dark:text-white">¥{{ status.total_recharged.toFixed(2) }}</p>
           <p class="mt-2 text-sm" :class="status.eligible ? 'text-emerald-600' : 'text-amber-600'">
-            {{
-              status.eligible
-                ? t('cfAllowlist.slots', { used: status.used_slots, max: status.max_slots })
-                : t('cfAllowlist.needRecharge', { amount: status.threshold })
-            }}
+            {{ status.eligible ? t('cfAllowlist.slots', { used: status.used_slots, max: status.max_slots }) : t('cfAllowlist.needRecharge', { amount: status.threshold }) }}
           </p>
         </div>
 
         <div class="console-account-section space-y-4">
           <p class="text-sm text-gray-600 dark:text-dark-300">
-            {{ t('cfAllowlist.detectedIP') }}:
-            <span class="font-mono">{{ status.detected_ip || t('cfAllowlist.unknownIP') }}</span>
+            {{ t('cfAllowlist.detectedIP') }}: <span class="font-mono">{{ status.detected_ip || t('cfAllowlist.unknownIP') }}</span>
           </p>
           <div>
             <label class="input-label" for="ip">{{ t('cfAllowlist.ipLabel') }}</label>
-            <input
-              id="ip"
-              v-model="ipInput"
-              class="input mt-1 w-full font-mono"
-              :placeholder="status.detected_ip || '1.2.3.4'"
-              :disabled="submitting || !status.eligible"
-            />
+            <input id="ip" v-model="ipInput" class="input mt-1 w-full font-mono" :placeholder="status.detected_ip || '1.2.3.4'" :disabled="submitting || !status.eligible" />
           </div>
           <p v-if="!status.configured" class="text-sm text-amber-600">{{ t('cfAllowlist.notConfigured') }}</p>
-          <button
-            type="button"
-            class="btn btn-primary w-full py-3"
-            :disabled="!status.eligible || !status.configured || submitting"
-            @click="submitIP"
-          >
+          <button type="button" class="btn btn-primary w-full py-3" :disabled="!status.eligible || !status.configured || submitting" @click="submitIP">
             {{ submitting ? t('cfAllowlist.submitting') : t('cfAllowlist.submit') }}
           </button>
         </div>
@@ -53,11 +35,7 @@
         <div class="console-account-section">
           <h2 class="text-sm font-medium text-gray-900 dark:text-white">{{ t('cfAllowlist.current') }}</h2>
           <ul v-if="status.items.length" class="mt-3 space-y-2">
-            <li
-              v-for="item in status.items"
-              :key="item.id"
-              class="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 dark:border-dark-600"
-            >
+            <li v-for="item in status.items" :key="item.id" class="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 dark:border-dark-600">
               <span class="font-mono text-sm">{{ item.ip }}</span>
               <button type="button" class="btn btn-ghost btn-icon text-red-600" :title="t('common.delete')" :aria-label="t('common.delete')" :disabled="removingId === item.id" @click="removeIP(item.id)">
                 <Icon name="trash" size="sm" />
@@ -91,9 +69,7 @@ async function load() {
   loading.value = true
   try {
     status.value = await cfAllowlistAPI.getStatus()
-    if (!ipInput.value && status.value.detected_ip) {
-      ipInput.value = status.value.detected_ip
-    }
+    if (!ipInput.value && status.value.detected_ip) ipInput.value = status.value.detected_ip
   } catch (err: any) {
     appStore.showError(err?.message || t('cfAllowlist.loadFailed'))
   } finally {

@@ -149,6 +149,12 @@
                         </span>
                         <span class="flex-1 text-left">{{ t('admin.tlsFingerprintProfiles.title') }}</span>
                       </button>
+                      <button class="account-tools-menu-item" @click="openBalanceAlert">
+                        <span class="account-tools-menu-icon bg-yellow-50 text-yellow-600 dark:bg-yellow-900/30 dark:text-yellow-300">
+                          <Icon name="bell" size="sm" />
+                        </span>
+                        <span class="flex-1 text-left">{{ t('admin.accounts.balanceAlert.title') }}</span>
+                      </button>
 
                       <div class="account-menu-divider"></div>
                       <div class="account-menu-heading">
@@ -205,6 +211,7 @@
           @reset-status="handleBulkResetStatus"
           @refresh-token="handleBulkRefreshToken"
           @probe-upstream-billing="handleBulkProbeUpstreamBilling"
+          @test-models="openBatchTestModal"
           @edit-selected="openBulkEditSelected"
           @edit-filtered="openBulkEditFiltered"
           @clear="clearSelection"
@@ -347,6 +354,16 @@
               @usage-loaded="handleAccountUsageLoaded(row.id, $event)"
             />
           </template>
+          <template #cell-custom_usage="{ row }">
+            <CustomUsageCell
+              :key="row.id + ':' + customUsagePageKey"
+              :account="row"
+              :state="customUsageStates[row.id]"
+              @refresh="refreshCustomUsage(row.id)"
+              @configure="customUsageAccount = row"
+              @visibility="setCustomUsageVisible(row.id, $event)"
+            />
+          </template>
           <template #cell-proxy="{ row }">
             <div class="flex flex-col gap-1">
               <div v-if="row.proxy" class="flex items-center gap-2">
@@ -475,9 +492,16 @@
     <EditAccountModal :show="showEdit" :account="edAcc" :proxies="proxies" :groups="groups" @close="showEdit = false" @updated="handleAccountUpdated" />
     <ReAuthAccountModal :show="showReAuth" :account="reAuthAcc" @close="closeReAuthModal" @reauthorized="handleAccountUpdated" />
     <AccountTestModal :show="showTest" :account="testingAcc" @close="closeTestModal" />
+    <AccountBatchTestModal :show="showBatchTest" :accounts="batchTestAccounts" @close="closeBatchTestModal" />
     <AccountStatsModal :show="showStats" :account="statsAcc" @close="closeStatsModal" />
     <ScheduledTestsPanel :show="showSchedulePanel" :account-id="scheduleAcc?.id ?? null" :model-options="scheduleModelOptions" @close="closeSchedulePanel" />
-    <AccountActionMenu :show="menu.show" :account="menu.acc" :anchor-rect="menu.anchorRect" @close="menu.show = false" @test="handleTest" @stats="handleViewStats" @schedule="handleSchedule" @duplicate="handleDuplicateAccount" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @create-spark-shadow="handleCreateSparkShadow" />
+    <CustomUsageConfigModal
+      :show="customUsageAccount !== null"
+      :account="customUsageAccount"
+      @close="customUsageAccount = null"
+      @saved="handleCustomUsageSaved"
+    />
+    <AccountActionMenu @custom-usage="customUsageAccount = $event" :show="menu.show" :account="menu.acc" :anchor-rect="menu.anchorRect" @close="menu.show = false" @test="handleTest" @stats="handleViewStats" @schedule="handleSchedule" @duplicate="handleDuplicateAccount" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @create-spark-shadow="handleCreateSparkShadow" />
     <SyncFromCrsModal :show="showSync" @close="showSync = false" @synced="reload" />
     <ImportDataModal :show="showImportData" @close="showImportData = false" @imported="handleDataImported" />
     <BulkEditAccountModal
@@ -502,6 +526,14 @@
     </ConfirmDialog>
     <ErrorPassthroughRulesModal :show="showErrorPassthrough" @close="showErrorPassthrough = false" />
     <TLSFingerprintProfilesModal :show="showTLSFingerprintProfiles" @close="showTLSFingerprintProfiles = false" />
+    <BalanceAlertConfigModal
+      :show="showBalanceAlert"
+      :enabled="balanceAlertSettings.enabled"
+      :threshold="balanceAlertSettings.threshold"
+      :recharge-url="balanceAlertSettings.rechargeUrl"
+      @close="showBalanceAlert = false"
+      @saved="loadBalanceAlertSettings"
+    />
     <TotpStepUpDialog :controller="accountExportStepUp" />
   </AppLayout>
 </template>
@@ -532,11 +564,16 @@ import AccountActionMenu from '@/components/admin/account/AccountActionMenu.vue'
 import ImportDataModal from '@/components/admin/account/ImportDataModal.vue'
 import ReAuthAccountModal from '@/components/admin/account/ReAuthAccountModal.vue'
 import AccountTestModal from '@/components/admin/account/AccountTestModal.vue'
+import AccountBatchTestModal from '@/components/admin/account/AccountBatchTestModal.vue'
 import AccountStatsModal from '@/components/admin/account/AccountStatsModal.vue'
 import ScheduledTestsPanel from '@/components/admin/account/ScheduledTestsPanel.vue'
 import type { SelectOption } from '@/components/common/Select.vue'
 import AccountStatusIndicator from '@/components/account/AccountStatusIndicator.vue'
 import AccountUsageCell from '@/components/account/AccountUsageCell.vue'
+import CustomUsageCell from '@/components/account/CustomUsageCell.vue'
+import CustomUsageConfigModal from '@/components/account/CustomUsageConfigModal.vue'
+import { useCustomUsage } from '@/composables/useCustomUsage'
+import type { CustomUsageConfig } from '@/api/admin/customUsage'
 import AccountTodayStatsCell from '@/components/account/AccountTodayStatsCell.vue'
 import AccountGroupsCell from '@/components/account/AccountGroupsCell.vue'
 import AccountCapacityCell from '@/components/account/AccountCapacityCell.vue'
@@ -545,7 +582,9 @@ import PlatformTypeBadge from '@/components/common/PlatformTypeBadge.vue'
 import Icon from '@/components/icons/Icon.vue'
 import ErrorPassthroughRulesModal from '@/components/admin/ErrorPassthroughRulesModal.vue'
 import TLSFingerprintProfilesModal from '@/components/admin/TLSFingerprintProfilesModal.vue'
+import BalanceAlertConfigModal from '@/components/account/BalanceAlertConfigModal.vue'
 import { fetchAllAccountIds } from '@/utils/accountSelection'
+import { resolveBatchTestAccounts } from '@/utils/accountModelTest'
 import { buildGrokUsageRefreshKey, buildOpenAIUsageRefreshKey } from '@/utils/accountUsageRefresh'
 import { formatDateTime, formatRelativeTime } from '@/utils/format'
 import { proxyExpiryBadgeClass, proxyExpiryLabelKey } from '@/utils/proxyExpiry'
@@ -621,9 +660,12 @@ const showDeleteDialog = ref(false)
 const showCreateShadowDialog = ref(false)
 const showReAuth = ref(false)
 const showTest = ref(false)
+const showBatchTest = ref(false)
 const showStats = ref(false)
 const showErrorPassthrough = ref(false)
 const showTLSFingerprintProfiles = ref(false)
+const showBalanceAlert = ref(false)
+const balanceAlertSettings = ref({ enabled: false, threshold: 5, rechargeUrl: '' })
 const edAcc = ref<Account | null>(null)
 const tempUnschedAcc = ref<Account | null>(null)
 const deletingAcc = ref<Account | null>(null)
@@ -1113,6 +1155,20 @@ const {
   }
 })
 
+const customUsageAccount = ref<AccountListItem | null>(null)
+const customUsagePageKey = computed(() => JSON.stringify([pagination.page, pagination.page_size, params]))
+const customUsageActive = computed(() => !loading.value && customUsageAccount.value === null && !hiddenColumns.has('custom_usage'))
+const {
+  states: customUsageStates,
+  setVisible: setCustomUsageVisible,
+  refresh: refreshCustomUsage,
+  configSaved: customUsageConfigSaved
+} = useCustomUsage(accounts, customUsageActive, customUsagePageKey)
+const handleCustomUsageSaved = (id: number, config: Pick<CustomUsageConfig, 'enabled' | 'interval_minutes'>) => {
+  customUsageConfigSaved(id, config)
+  appStore.showSuccess(t('admin.accounts.customUsage.saved'))
+}
+
 const {
   selectedSet,
   selectedIds: selIds,
@@ -1387,10 +1443,12 @@ const isAnyModalOpen = computed(() => {
     showDeleteDialog.value ||
     showReAuth.value ||
     showTest.value ||
+    showBatchTest.value ||
     showStats.value ||
     showSchedulePanel.value ||
     showErrorPassthrough.value ||
-    showTLSFingerprintProfiles.value
+    showTLSFingerprintProfiles.value ||
+    showBalanceAlert.value
   )
 })
 
@@ -1561,6 +1619,25 @@ const openTLSFingerprintProfiles = () => {
   showTLSFingerprintProfiles.value = true
 }
 
+const loadBalanceAlertSettings = async () => {
+  try {
+    const s = await adminAPI.settings.getSettings()
+    balanceAlertSettings.value = {
+      enabled: s.balance_low_notify_enabled ?? false,
+      threshold: s.balance_low_notify_threshold ?? 5,
+      rechargeUrl: s.balance_low_notify_recharge_url ?? '',
+    }
+  } catch (e) {
+    console.error('Failed to load balance alert settings:', e)
+  }
+}
+
+const openBalanceAlert = async () => {
+  closeAccountToolsDropdown()
+  await loadBalanceAlertSettings()
+  showBalanceAlert.value = true
+}
+
 const syncPendingListChanges = async () => {
   hasPendingListSync.value = false
   await load()
@@ -1595,8 +1672,8 @@ const { pause: pauseAutoRefresh, resume: resumeAutoRefresh } = useIntervalFn(
   { immediate: false }
 )
 
-const GROK_QUOTA_SIGNAL_MAX_AGE_MS = 24 * 60 * 60 * 1000
-const GROK_QUOTA_SIGNAL_MAX_FUTURE_SKEW_MS = 5 * 60 * 1000
+const GROK_QUOTA_FoxCode_MAX_AGE_MS = 24 * 60 * 60 * 1000
+const GROK_QUOTA_FoxCode_MAX_FUTURE_SKEW_MS = 5 * 60 * 1000
 
 function firstNonBlankString(...values: unknown[]): string | undefined {
   return values.find((value): value is string => (
@@ -1630,7 +1707,7 @@ function isGrokQuotaTimestampFresh(raw: unknown): boolean {
   const observedAt = Date.parse(value)
   if (!Number.isFinite(observedAt)) return false
   const age = Date.now() - observedAt
-  return age <= GROK_QUOTA_SIGNAL_MAX_AGE_MS && age >= -GROK_QUOTA_SIGNAL_MAX_FUTURE_SKEW_MS
+  return age <= GROK_QUOTA_FoxCode_MAX_AGE_MS && age >= -GROK_QUOTA_FoxCode_MAX_FUTURE_SKEW_MS
 }
 
 function isGrok45ResponsesQuotaModel(model: unknown): boolean {
@@ -1815,6 +1892,7 @@ const allColumns = computed(() => {
     c.push({ key: 'groups', label: t('admin.accounts.columns.groups'), sortable: false })
   }
   c.push({ key: 'usage', label: t('admin.accounts.columns.usageWindows'), sortable: false })
+  c.push({ key: 'custom_usage', label: t('admin.accounts.customUsage.column'), sortable: false })
   c.push(
     { key: 'proxy', label: t('admin.accounts.columns.proxy'), sortable: false },
     { key: 'priority', label: t('admin.accounts.columns.priority'), sortable: true },
@@ -2329,6 +2407,12 @@ const handleExportData = async () => {
 }
 const accountExportStepUp = useStepUp()
 const closeTestModal = () => { showTest.value = false; testingAcc.value = null }
+const batchTestAccounts = computed(() => resolveBatchTestAccounts(selIds.value, accounts.value))
+const openBatchTestModal = () => {
+  if (selIds.value.length === 0) return
+  showBatchTest.value = true
+}
+const closeBatchTestModal = () => { showBatchTest.value = false }
 const closeStatsModal = () => { showStats.value = false; statsAcc.value = null }
 const closeReAuthModal = () => { showReAuth.value = false; reAuthAcc.value = null }
 const handleTest = async (a: AccountListItem) => {
@@ -2604,7 +2688,28 @@ onUnmounted(() => {
 
 <style scoped>
 .accounts-workspace {
+  width: 100%;
+  max-width: none;
+  min-width: 0;
   gap: 12px;
+}
+
+.accounts-workspace :deep(.layout-section-scrollable),
+.accounts-workspace :deep(.table-scroll-container) {
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+}
+
+.accounts-workspace :deep(.layout-section-scrollable) {
+  overflow: hidden;
+}
+
+.accounts-table-stage :deep(.table-wrapper) {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
 }
 
 .accounts-command-bar {
@@ -2618,7 +2723,10 @@ onUnmounted(() => {
 
 .accounts-table-stage {
   display: flex;
+  width: 100%;
+  max-width: 100%;
   min-height: 0;
+  min-width: 0;
   flex: 1 1 auto;
   flex-direction: column;
   overflow: hidden;
@@ -2643,7 +2751,7 @@ onUnmounted(() => {
   border-radius: 8px;
   background: var(--console-surface);
   color: var(--console-text);
-  box-shadow: var(--console-shadow), inset 0 1px 0 color-mix(in srgb, var(--console-text) 7%, transparent);
+  box-shadow: var(--console-popover-shadow, var(--console-shadow)), inset 0 1px 0 color-mix(in srgb, var(--console-text) 7%, transparent);
 }
 
 .account-popover-body,

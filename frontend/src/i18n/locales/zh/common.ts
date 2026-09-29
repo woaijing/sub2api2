@@ -140,6 +140,7 @@ export default {
     notFoundDescription: '当前条款文档不存在或已被管理员移除。',
     updatedAt: '更新日期：{date}',
     empty: '暂无正文内容',
+    navLabel: '法律与政策',
     loginAgreement: '登录条款',
     adminCompliance: '部署与运营合规承诺',
     loginAgreementPrompt: {
@@ -163,6 +164,7 @@ export default {
 
   // Navigation
   nav: {
+    ipAllowlist: '访问白名单',
     dashboard: '仪表盘',
     announcements: '公告',
     apiKeys: 'API 密钥',
@@ -208,7 +210,6 @@ export default {
     channelPricing: '渠道定价',
     channelMonitor: '渠道监控',
     channelStatus: '渠道状态',
-    ipAllowlist: '访问白名单',
     riskControl: '风控中心',
     securityAudit: '安全审计',
     contentModeration: '内容审核',

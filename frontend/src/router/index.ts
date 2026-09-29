@@ -168,6 +168,10 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/legal',
+    redirect: '/legal/privacy'
+  },
+  {
     path: '/legal/:documentId',
     name: 'LegalDocument',
     component: () => import('@/views/public/LegalDocumentView.vue'),
@@ -300,6 +304,20 @@ const routes: RouteRecordRaw[] = [
       titleKey: 'cfAllowlist.title',
       descriptionKey: 'cfAllowlist.intro'
     }
+  },
+  {
+    path: '/tickets/:id(\\d+)?',
+    name: 'UserTickets',
+    component: () => import('@/views/TicketsView.vue'),
+    props: { admin: false },
+    meta: { requiresAuth: true, requiresAdmin: false, title: 'My tickets', titleKey: 'tickets.title' }
+  },
+  {
+    path: '/admin/tickets/:id(\\d+)?',
+    name: 'AdminTickets',
+    component: () => import('@/views/TicketsView.vue'),
+    props: { admin: true },
+    meta: { requiresAuth: true, requiresAdmin: true, title: 'Support inbox', titleKey: 'tickets.adminTitle' }
   },
   {
     path: '/profile',

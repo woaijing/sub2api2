@@ -5,6 +5,7 @@ const consolePaths = new Set([
   '/dashboard', '/keys', '/usage', '/monitor', '/available-channels',
   '/purchase', '/orders', '/subscriptions', '/redeem',
   '/profile', '/affiliate', '/ip-allowlist',
+  '/tickets',
   '/payment/qrcode', '/payment/result', '/payment/stripe', '/payment/airwallex',
 ])
 

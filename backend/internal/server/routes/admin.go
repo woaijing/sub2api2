@@ -30,6 +30,7 @@ func RegisterAdminRoutes(
 	// 审计中间件挂在认证之后：所有管理面变更类操作 + 敏感读取入审计日志
 	admin.Use(gin.HandlerFunc(auditLog))
 	admin.Use(middleware.AdminComplianceGuard(settingService))
+	registerAdminTicketRoutes(admin, h.Ticket)
 	{
 		// 部署与运营合规确认
 		registerAdminComplianceRoutes(admin, h)
@@ -111,6 +112,9 @@ func RegisterAdminRoutes(
 
 		// 定时测试计划
 		registerScheduledTestRoutes(admin, h)
+
+		// 分组降智检测
+		registerGroupQualityCheckRoutes(admin, h)
 
 		// 渠道管理
 		registerChannelRoutes(admin, h)
@@ -358,7 +362,12 @@ func registerGroupRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 
 func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAuth middleware.StepUpAuthMiddleware) {
 	accounts := admin.Group("/accounts")
+	customUsage := h.Admin.Account.NewCustomUsageHandler()
 	{
+		accounts.GET("/:id/custom-usage-config", customUsage.GetConfig)
+		accounts.PUT("/:id/custom-usage-config", customUsage.PutConfig)
+		accounts.POST("/:id/custom-usage-query", customUsage.Query)
+		accounts.POST("/custom-usage-batch", customUsage.Batch)
 		accounts.GET("", h.Admin.Account.List)
 		accounts.GET("/upstream-billing-rates", h.Admin.Account.GetUpstreamBillingRates)
 		accounts.GET("/upstream-billing-probe/settings", h.Admin.Account.GetUpstreamBillingProbeSettings)
@@ -726,6 +735,16 @@ func registerScheduledTestRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	}
 	// Nested under accounts
 	admin.GET("/accounts/:id/scheduled-test-plans", h.Admin.ScheduledTest.ListByAccount)
+}
+
+func registerGroupQualityCheckRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
+	qc := admin.Group("/quality-check")
+	{
+		qc.GET("/groups", h.Admin.GroupQualityCheck.List)
+		qc.GET("/groups/:id", h.Admin.GroupQualityCheck.Get)
+		qc.PUT("/groups/:id", h.Admin.GroupQualityCheck.SetEnabled)
+		qc.GET("/groups/:id/results", h.Admin.GroupQualityCheck.ListResults)
+	}
 }
 
 func registerErrorPassthroughRoutes(admin *gin.RouterGroup, h *handler.Handlers) {

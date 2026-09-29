@@ -1,4 +1,6 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+import type { CustomUsageConfig, CustomUsageResult, CustomUsageBatch } from '../src/api/admin/customUsage'
+import { createUsageDraft, usageTemplate } from '../src/utils/customUsage'
 import { createMockApi, PreviewError } from './mock-api'
 import type { AccountListItem, AdminGroup, AdminUsageLog, AdminUser, ApiKey, DashboardStats, PaginatedResponse, UsageLog } from '../src/types'
 import type { UserDashboardStats } from '../src/api/usage'
@@ -202,15 +204,20 @@ describe('local demo API contracts', () => {
     expect(subscriptions.map(item => item.status)).toEqual(['active', 'active', 'expired'])
     expect(subscriptions[0].group?.daily_limit_usd).toBe(12)
     expect(api.handle('GET', '/api/v1/subscriptions/summary', query())).toMatchObject({ active_count: 2 })
+    const plaza = api.handle('GET', '/api/v1/model-plaza', query()) as { groups: Array<{ id: number; platform: string; rate_multiplier: number; models: unknown[] }> }
+    expect(plaza.groups.length).toBe(6)
+    expect(plaza.groups.every(group => group.models.length > 0)).toBe(true)
+    expect(plaza.groups.map(group => group.rate_multiplier)).toEqual([1, 0.07, 1, 1, 0.5, 1])
   })
 
   it('keeps payment orders local, currency-aware and free of outbound payment URLs', () => {
     const api = createMockApi(date)
     const checkout = api.handle('GET', '/api/v1/payment/checkout-info', query()) as CheckoutInfoResponse
-    expect(checkout.methods.alipay.currency).toBe('CNY')
-    expect(checkout.methods.epusdt.currency).toBe('USDT')
+    expect(Object.keys(checkout.methods)).toEqual(['epusdt'])
+    expect(checkout.recharge_center_enabled).toBe(false)
+    expect(checkout.methods.epusdt.currency).toBe('CNY')
     expect(checkout.plans[0]).toMatchObject({ price: 29, currency: 'USD' })
-    const created = api.handle('POST', '/api/v1/payment/orders', query(), { amount: 20, payment_type: 'alipay', order_type: 'balance' }) as CreateOrderResult
+    const created = api.handle('POST', '/api/v1/payment/orders', query(), { amount: 20, payment_type: 'epusdt', order_type: 'balance' }) as CreateOrderResult
     expect(created).toMatchObject({ order_id: 51007, amount: 20, pay_amount: 20, currency: 'CNY', payment_mode: 'qrcode' })
     expect(created.qr_code).toBe('LOCAL-DEMO-PAYMENT:LOCAL-DEMO-20260917-51007')
     expect(created.pay_url).toBeUndefined()
@@ -220,7 +227,7 @@ describe('local demo API contracts', () => {
     expect(api.handle('GET', '/api/v1/payment/orders/51007', query())).toMatchObject({ status: 'CANCELLED' })
 
     const usdt = api.handle('POST', '/api/v1/payment/orders', query(), { amount: 12, payment_type: 'epusdt', order_type: 'balance' }) as CreateOrderResult
-    expect(usdt).toMatchObject({ currency: 'USDT', pay_amount: 12 })
+    expect(usdt).toMatchObject({ currency: 'CNY', pay_amount: 12 })
     const orders = api.handle('GET', '/api/v1/payment/orders/my', query('page=1&page_size=20')) as PaginatedResponse<PaymentOrder>
     expect(orders.total).toBe(8)
     expect(orders.items.some(order => order.currency === 'USDT')).toBe(true)
@@ -228,7 +235,18 @@ describe('local demo API contracts', () => {
     expect(api.handle('GET', '/api/v1/payment/orders/51005', query())).toMatchObject({ status: 'REFUND_REQUESTED', refund_request_reason: '仅测试页面交互' })
   })
 
-  it('simulates redeem, affiliate, profile and IP allowlist actions only in memory', () => {
+  it('persists the recharge entry switch in preview settings and checkout without changing providers', () => {
+    const api = createMockApi(date)
+    for (const enabled of [true, false]) {
+      expect(api.handle('PUT', '/api/v1/admin/settings', query(), { payment_recharge_center_enabled: enabled })).toMatchObject({ payment_recharge_center_enabled: enabled })
+      expect(api.handle('GET', '/api/v1/admin/settings', query())).toMatchObject({ payment_recharge_center_enabled: enabled })
+      const checkout = api.handle('GET', '/api/v1/payment/checkout-info', query()) as CheckoutInfoResponse
+      expect(checkout.recharge_center_enabled).toBe(enabled)
+      expect(Object.keys(checkout.methods)).toEqual(['epusdt'])
+    }
+  })
+
+  it('simulates redeem, affiliate and profile actions only in memory', () => {
     const api = createMockApi(date)
     expect(api.handle('POST', '/api/v1/redeem', query(), { code: 'DEMO-BALANCE-10' })).toMatchObject({ type: 'balance', new_balance: 138.64 })
     expect(api.handle('GET', '/api/v1/auth/me', query())).toMatchObject({ balance: 138.64 })
@@ -237,11 +255,6 @@ describe('local demo API contracts', () => {
     expect(api.handle('GET', '/api/v1/user/aff', query())).toMatchObject({ aff_quota: 0 })
     expect(api.handle('PUT', '/api/v1/user', query(), { username: '预览资料已修改' })).toMatchObject({ username: '预览资料已修改' })
 
-    const added = api.handle('POST', '/api/v1/user/cf-allowlist', query(), { ip: '198.51.100.24' }) as { id: number }
-    expect(api.handle('GET', '/api/v1/user/cf-allowlist', query())).toMatchObject({ used_slots: 3 })
-    api.handle('DELETE', `/api/v1/user/cf-allowlist/${added.id}`, query())
-    expect(api.handle('GET', '/api/v1/user/cf-allowlist', query())).toMatchObject({ used_slots: 2 })
-    expect(() => api.handle('POST', '/api/v1/user/cf-allowlist', query(), { ip: 'not-an-ip' })).toThrow('有效的 IPv4 或 IPv6')
     expect(createMockApi(date).handle('GET', '/api/v1/auth/me', query())).toMatchObject({ balance: 128.64, username: '演示用户' })
   })
 
@@ -255,5 +268,87 @@ describe('local demo API contracts', () => {
     expect(() => api.handle('POST', '/api/v1/keys', query(), { name: 'demo', quota: -1 })).toThrow('额度')
     expect(() => api.handle('GET', '/api/v1/usage', query('timezone=invalid'))).toThrow('时区')
     expect(() => api.handle('GET', '/api/v1/usage', query('start_date=2026-10-01&end_date=2026-09-01'))).toThrow('开始日期')
+  })
+})
+
+
+describe('local custom usage fixtures', () => {
+  const configPath = (id = 920023) => '/api/v1/admin/accounts/' + id + '/custom-usage-config'
+  const queryPath = (id = 920023) => '/api/v1/admin/accounts/' + id + '/custom-usage-query'
+  const batchPath = '/api/v1/admin/accounts/custom-usage-batch'
+  const body = (config: CustomUsageConfig) => config as unknown as Record<string, unknown>
+  it('provides eligible accounts and all three built-in fixture results without external fetch', () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(() => { throw new Error('External request forbidden') })
+    try {
+      const api = createMockApi(date)
+      const accounts = api.handle('GET', '/api/v1/admin/accounts', query('page_size=50')) as PaginatedResponse<AccountListItem>
+      const account = accounts.items.find(item => item.id === 920023)!
+      expect(account).toMatchObject({ type: 'apikey', credentials: { base_url: 'https://upstream.example.com' } })
+      const templates = ['general', 'newapi', 'sub2api'] as const
+      for (const [index, id] of [920023, 920020, 920017].entries()) {
+        const config = api.handle('GET', configPath(id), query()) as CustomUsageConfig
+        expect(config.template).toBe(templates[index])
+        const result = api.handle('POST', queryPath(id), query(), { force: true }) as CustomUsageResult
+        expect(result).toMatchObject({ enabled: true, configured: true, remaining: expect.any(Number), used: expect.any(Number), unit: 'USD', interval_minutes: config.interval_minutes })
+      }
+      api.handle('POST', batchPath, query(), { account_ids: [920023, 920020, 920017] })
+      expect(fetchSpy).not.toHaveBeenCalled()
+    } finally { fetchSpy.mockRestore() }
+  })
+  it('saves and reopens secret presence only, preserves blanks and supports explicit clearing', () => {
+    const api = createMockApi(date)
+    const config = api.handle('GET', configPath(), query()) as CustomUsageConfig
+    const updated = { ...config, api_key: 'test-secret-only-in-draft', access_token: 'test-access-only-in-draft', interval_minutes: 5 }
+    api.handle('PUT', configPath(), query(), body(updated))
+    const reopen = api.handle('GET', configPath(), query()) as CustomUsageConfig
+    expect(reopen).toMatchObject({ has_api_key: true, has_access_token: true, interval_minutes: 5 })
+    expect(reopen).not.toHaveProperty('api_key'); expect(reopen).not.toHaveProperty('access_token')
+    expect(JSON.stringify(reopen)).not.toContain('only-in-draft')
+    api.handle('PUT', configPath(), query(), body({ ...reopen, api_key: '', access_token: '' }))
+    expect(api.handle('GET', configPath(), query())).toMatchObject({ has_api_key: true, has_access_token: true })
+    api.handle('PUT', configPath(), query(), body({ ...reopen, clear_api_key: true, clear_access_token: true }))
+    expect(api.handle('GET', configPath(), query())).toMatchObject({ has_api_key: false, has_access_token: false })
+  })
+  it('tests a draft without mutating stored configuration or the saved cache', () => {
+    const api = createMockApi(date)
+    const saved = api.handle('GET', configPath(), query())
+    const cached = api.handle('POST', batchPath, query(), { account_ids: [920023] })
+    const config: CustomUsageConfig = { ...createUsageDraft('https://never-contact.example.com'), ...usageTemplate('newapi'), template: 'newapi', enabled: true, access_token: 'draft-only', user_id: '3' }
+    expect(api.handle('POST', queryPath(), query(), { config, force: true })).toMatchObject({ remaining: 42.5, used: 7.5, unit: 'USD' })
+    expect(api.handle('GET', configPath(), query())).toEqual(saved)
+    expect(api.handle('POST', batchPath, query(), { account_ids: [920023] })).toEqual(cached)
+  })
+  it('returns metadata for cache misses without querying and caps batches at 50', () => {
+    const api = createMockApi(date)
+    const config = api.handle('GET', configPath(), query()) as CustomUsageConfig
+    api.handle('PUT', configPath(), query(), body(config))
+    const batch = api.handle('POST', batchPath, query(), { account_ids: [920023] }) as CustomUsageBatch
+    expect(batch.items['920023']).toMatchObject({ enabled: true, configured: true })
+    expect(batch.items['920023']).not.toHaveProperty('remaining')
+    expect(batch.items['920023']).not.toHaveProperty('updated_at')
+    api.handle('POST', queryPath(), query(), {})
+    expect((api.handle('POST', batchPath, query(), { account_ids: [920023] }) as CustomUsageBatch).items['920023'].remaining).toBe(128.64)
+    expect(() => api.handle('POST', batchPath, query(), { account_ids: Array(51).fill(920023) })).toThrow(PreviewError)
+    expect(() => api.handle('POST', batchPath, query(), { account_ids: [0] })).toThrow(PreviewError)
+    expect(() => api.handle('POST', batchPath, query(), { account_ids: [] })).toThrow(PreviewError)
+  })
+  it('rejects ineligible accounts and invalid configs while keeping new fixtures independent', () => {
+    const api = createMockApi(date)
+    expect(() => api.handle('GET', configPath(920022), query())).toThrow(PreviewError)
+    expect(() => api.handle('GET', configPath(99), query())).toThrow(PreviewError)
+    const config = api.handle('GET', configPath(), query()) as CustomUsageConfig
+    expect(() => api.handle('PUT', configPath(), query(), body({ ...config, interval_minutes: 1 }))).toThrow(PreviewError)
+    api.handle('PUT', configPath(), query(), body({ ...config, enabled: false }))
+    expect(api.handle('POST', queryPath(), query(), {})).toMatchObject({ enabled: false })
+    expect(api.handle('POST', queryPath(), query(), {})).not.toHaveProperty('remaining')
+    expect(createMockApi(date).handle('GET', configPath(), query())).toMatchObject({ enabled: true })
+  })
+  it('redacts literal request credentials in both saved and read-back fixture data', () => {
+    const api = createMockApi(date)
+    const config = api.handle('GET', configPath(), query()) as CustomUsageConfig
+    const payload = { ...config, request: { ...config.request, url: '{{baseUrl}}/usage?secret=do-not-echo', headers: { Authorization: 'Bearer do-not-echo' } } }
+    const saved = api.handle('PUT', configPath(), query(), body(payload))
+    expect(JSON.stringify(saved)).not.toContain('do-not-echo')
+    expect(JSON.stringify(api.handle('GET', configPath(), query()))).not.toContain('do-not-echo')
   })
 })

@@ -14,6 +14,12 @@
   --ui-action: 184 92 62;
   --ui-action-hover: 158 73 50;
   --ui-accent: 233 183 165;
+  --console-paper-image: url('../assets/console-paper.webp');
+  --console-paper-blend: multiply;
+  --console-paper-opacity: 0.18;
+  --console-draft-ink: rgb(var(--ui-brand-strong) / 0.12);
+  --console-draft-line: rgb(var(--ui-brand-strong) / 0.16);
+  --console-draft-opacity: 0.18;
 }
 
 :root.dark {
@@ -32,6 +38,12 @@
   --ui-action: 233 154 124;
   --ui-action-hover: 240 175 149;
   --ui-accent: 242 196 180;
+  --console-paper-image: url('../assets/console-paper-dark.webp');
+  --console-paper-blend: screen;
+  --console-paper-opacity: 0.12;
+  --console-draft-ink: rgb(var(--ui-brand-strong) / 0.14);
+  --console-draft-line: rgb(var(--ui-brand-strong) / 0.2);
+  --console-draft-opacity: 0.16;
 }
 
 html,

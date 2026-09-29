@@ -45,8 +45,8 @@
         <template v-else>
           <!-- Top-up Tab -->
           <section v-if="activeTab === 'recharge'" id="payment-view-panel-recharge"
-            class="console-payment-flow" role="tabpanel" aria-labelledby="payment-view-tab-recharge" tabindex="0">
-            <div v-if="enabledMethods.length === 0" class="console-empty-state">
+            class="console-payment-flow" role="tabpanel" :aria-labelledby="tabs.length > 1 ? 'payment-view-tab-recharge' : undefined" :aria-label="tabs.length <= 1 ? t('payment.tabTopUp') : undefined" tabindex="0">
+            <div v-if="checkout.balance_disabled || enabledMethods.length === 0" class="console-empty-state">
               <p class="text-gray-500 dark:text-gray-400">{{ t('payment.notAvailable') }}</p>
             </div>
             <div v-else class="console-recharge-layout">
@@ -69,6 +69,15 @@
                     :selected="selectedMethod"
                     @select="selectedMethod = $event"
                   />
+                  <div v-if="enabledMethods.includes('epusdt')" class="console-exchange-links" :aria-label="t('payment.usdtExchangeAccounts')">
+                    <a href="https://www.mitnpkwxvfr.net/join/4274122" target="_blank" rel="noopener noreferrer" class="console-exchange-link">
+                      {{ t('payment.registerOkx') }}<Icon name="externalLink" size="xs" aria-hidden="true" />
+                    </a>
+                    <a href="https://www.bsmkweb.cc/register?ref=TXUH99P0" target="_blank" rel="noopener noreferrer" class="console-exchange-link">
+                      {{ t('payment.registerBinance') }}<Icon name="externalLink" size="xs" aria-hidden="true" />
+                    </a>
+                    <span>{{ t('payment.exchangeNetworkHint') }}</span>
+                  </div>
                 </section>
               </div>
               <aside class="console-checkout-summary">
@@ -118,13 +127,14 @@
             </div>
           </section>
           <!-- Recharge Center Tab: reuse the configured custom payment center instead of subscriptions -->
-          <section v-else-if="activeTab === 'rechargeCenter'" id="payment-view-panel-rechargeCenter"
+          <section v-else-if="activeTab === 'rechargeCenter' && rechargeCenterEnabled" id="payment-view-panel-rechargeCenter"
             role="tabpanel" :aria-labelledby="tabs.length > 1 ? 'payment-view-tab-rechargeCenter' : undefined" :aria-label="tabs.length <= 1 ? t('payment.rechargeCenterTitle') : undefined" tabindex="0">
             <div ref="rechargeCenterFrameRef" class="recharge-center-shell">
               <div class="recharge-center-toolbar">
                 <div>
                   <p class="text-sm font-semibold text-gray-900 dark:text-white">{{ t('payment.rechargeCenterTitle') }}</p>
                   <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('payment.rechargeCenterDescription') }}</p>
+                  <p class="mt-1 text-xs text-amber-700 dark:text-amber-300">{{ t('payment.rechargeCenterNetworkHint') }}</p>
                 </div>
                 <div v-if="rechargeCenterUrl" class="flex flex-wrap items-center gap-2">
                   <button
@@ -147,13 +157,30 @@
                   </a>
                 </div>
               </div>
+              <div v-if="rechargeCenterUrl && rechargeCenterFailed" class="recharge-center-fallback" role="status">
+                <p class="text-base font-semibold text-gray-900 dark:text-white">{{ t('payment.rechargeCenterNetworkTitle') }}</p>
+                <p class="mt-2 text-sm text-gray-500 dark:text-gray-400">{{ t('payment.rechargeCenterNetworkBody') }}</p>
+                <a
+                  :href="rechargeCenterUrl"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="console-tool-button mt-4"
+                >
+                  <Icon name="externalLink" size="sm" aria-hidden="true" />
+                  {{ t('payment.rechargeCenterOpen') }}
+                </a>
+              </div>
               <div v-if="rechargeCenterUrl" class="recharge-center-frame">
                 <iframe
+                  :key="rechargeCenterUrl"
+                  ref="rechargeCenterIframeRef"
                   :src="rechargeCenterUrl"
                   title="Recharge Center"
                   class="h-[clamp(720px,calc(100dvh-210px),1080px)] min-h-[720px] w-full border-0 bg-white"
                   allow="payment *; clipboard-write"
                   allowfullscreen
+                  @load="onRechargeCenterLoad"
+                  @error="onRechargeCenterError"
                 ></iframe>
               </div>
               <div v-else class="px-5 py-16 text-center text-sm text-gray-500 dark:text-gray-400">
@@ -398,6 +425,10 @@ const errorHintMessage = ref('')
 const activeTab = ref<'recharge' | 'rechargeCenter' | 'subscription'>('recharge')
 const rechargeCenterFrameRef = ref<HTMLElement | null>(null)
 const isRechargeCenterFullscreen = ref(false)
+const RECHARGE_CENTER_LOAD_TIMEOUT_MS = 5000
+const rechargeCenterIframeRef = ref<HTMLIFrameElement | null>(null)
+const rechargeCenterFailed = ref(false)
+let rechargeCenterLoadTimer: ReturnType<typeof setTimeout> | null = null
 const amount = ref<number | null>(null)
 const selectedMethod = ref('')
 const selectedMethodLabel = computed(() => methodOptions.value.find(method => method.type === selectedMethod.value)?.display_name || t(`payment.methods.${selectedMethod.value}`, selectedMethod.value))
@@ -585,10 +616,12 @@ const renderedHelpText = computed(() => DOMPurify.sanitize(
   marked.parse(checkout.value.help_text || '', { async: false, gfm: true, breaks: false }),
 ))
 
+const rechargeCenterEnabled = computed(() => checkout.value.recharge_center_enabled === true)
+
 const tabs = computed(() => {
   const result: { key: 'recharge' | 'rechargeCenter'; label: string }[] = []
   if (!checkout.value.balance_disabled) result.push({ key: 'recharge', label: t('payment.tabTopUp') })
-  result.push({ key: 'rechargeCenter', label: t('payment.tabRechargeCenter') })
+  if (rechargeCenterEnabled.value) result.push({ key: 'rechargeCenter', label: t('payment.tabRechargeCenter') })
   return result
 })
 
@@ -666,11 +699,17 @@ const localeCode = computed(() => {
 
 const RECHARGE_CENTER_MENU_ID = '322273f5aaa4d036'
 const rechargeCenterUrl = computed(() => {
+  if (!rechargeCenterEnabled.value) return ''
   const item = appStore.cachedPublicSettings?.custom_menu_items?.find(
     candidate => candidate.id === RECHARGE_CENTER_MENU_ID,
   )
   const baseUrl = item?.url?.trim() || ''
-  if (!baseUrl || baseUrl.startsWith('md:')) return ''
+  if (!baseUrl) return ''
+  try {
+    if (!['https:', 'http:'].includes(new URL(baseUrl, window.location.href).protocol)) return ''
+  } catch {
+    return ''
+  }
   return buildEmbeddedUrl(
     baseUrl,
     authStore.user?.id,
@@ -697,6 +736,36 @@ async function toggleRechargeCenterFullscreen() {
     // Fullscreen can be denied by browser policy; the iframe remains usable.
   }
 }
+
+function clearRechargeCenterLoadTimer() {
+  if (rechargeCenterLoadTimer == null) return
+  clearTimeout(rechargeCenterLoadTimer)
+  rechargeCenterLoadTimer = null
+}
+
+function startRechargeCenterLoadWatch() {
+  clearRechargeCenterLoadTimer()
+  rechargeCenterFailed.value = false
+  if (!rechargeCenterIframeRef.value) return
+  rechargeCenterLoadTimer = setTimeout(() => {
+    rechargeCenterLoadTimer = null
+    rechargeCenterFailed.value = true
+  }, RECHARGE_CENTER_LOAD_TIMEOUT_MS)
+}
+
+function onRechargeCenterLoad(event: Event) {
+  if (event.currentTarget !== rechargeCenterIframeRef.value) return
+  rechargeCenterFailed.value = false
+  clearRechargeCenterLoadTimer()
+}
+
+function onRechargeCenterError(event: Event) {
+  if (event.currentTarget !== rechargeCenterIframeRef.value) return
+  rechargeCenterFailed.value = true
+  clearRechargeCenterLoadTimer()
+}
+
+watch(rechargeCenterIframeRef, startRechargeCenterLoadWatch, { flush: 'post' })
 
 function currencyFractionDigits(currency: string): number {
   try {
@@ -1265,7 +1334,7 @@ onMounted(async () => {
       }
     }
     await resumeWechatPaymentFromQuery()
-    if (checkout.value.balance_disabled) {
+    if (checkout.value.balance_disabled && rechargeCenterEnabled.value) {
       activeTab.value = 'rechargeCenter'
     }
     // Preserve legacy subscription deep links for payment callbacks and old renewal URLs.
@@ -1291,10 +1360,40 @@ onMounted(async () => {
 
 onUnmounted(() => {
   document.removeEventListener('fullscreenchange', handleRechargeCenterFullscreenChange)
+  clearRechargeCenterLoadTimer()
 })
 </script>
 
 <style scoped>
+.console-exchange-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+  color: var(--payment-muted);
+  font-size: 12px;
+}
+
+.console-exchange-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 32px;
+  padding: 5px 10px;
+  border: 1px solid currentColor;
+  border-radius: 6px;
+  color: var(--payment-accent);
+}
+
+.console-exchange-link:hover {
+  background: var(--payment-accent-soft);
+}
+
+@media (max-width: 639px) {
+  .console-exchange-link { min-height: 40px; }
+}
+
 .console-payment {
   --payment-bg: var(--console-bg);
   --payment-surface: var(--console-surface);
@@ -1548,6 +1647,16 @@ onUnmounted(() => {
 
 .recharge-center-frame {
   padding: 8px;
+  background: var(--payment-bg);
+}
+.recharge-center-fallback {
+  display: flex;
+  min-height: 320px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px;
+  text-align: center;
   background: var(--payment-bg);
 }
 

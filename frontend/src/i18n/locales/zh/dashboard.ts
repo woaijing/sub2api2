@@ -560,6 +560,20 @@ export default {
     nextUpdateIn: '{n}s 后刷新',
     past: 'PAST',
     now: 'NOW',
+    qualityLegend: '降智检测 · {n} 次记录',
+    qualityDegradedCount: '{n} 降智',
+    qualityTooltip: '{time} · 检测 {checked} 个账号 · 降智 {degraded} 个',
+    qualityTooltipNoData: '{time} · 无检测数据',
+    qualityNoData: '暂无降智检测数据',
+    qualityHistoryTitle: '历次检测 · {n} 条',
+    qualityHistoryDegradedCount: '{n} 次降智',
+    qualityHistoryPass: '通过',
+    qualityHistoryDegraded: '降智',
+    qualityHistoryEmpty: '暂无已完成判定的检测',
+    qualityHistoryLoading: '加载历次结果…',
+    qualityHistoryFailed: '历次结果加载失败',
+    qualityArtworkLoading: '动画加载中…',
+    qualityArtworkFailed: '动画加载失败',
     maintenancePaused: '维护中 · 已暂停时间线采集',
     extraModelsCount: '+ {n} 模型',
     pollEvery: '{n}s 轮询',
@@ -693,7 +707,11 @@ export default {
     },
     badges: {
       exclusive: '专属分组',
-      subscription: '订阅'
+      subscription: '订阅',
+      quality: {
+        healthy: '检测正常',
+        suspect: '疑似降智'
+      }
     },
     detail: {
       noModels: '该分组暂未配置模型',

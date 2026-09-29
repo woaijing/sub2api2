@@ -37,6 +37,15 @@
         <ConsoleNavigationSearch v-if="isConsoleWorkspace" />
         <!-- Announcement Bell -->
         <AnnouncementBell v-if="user" />
+        <router-link
+          v-if="user"
+          :to="authStore.isAdmin ? '/admin/tickets' : '/tickets'"
+          class="header-shortcut inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-gray-600 transition-colors hover:bg-gray-100 dark:text-dark-400 dark:hover:bg-dark-800"
+          :title="t(authStore.isAdmin ? 'tickets.adminTitle' : 'tickets.title')"
+          :aria-label="t(authStore.isAdmin ? 'tickets.adminTitle' : 'tickets.title')"
+        >
+          <Icon name="chat" size="md" />
+        </router-link>
 
         <!-- Docs Link -->
         <a

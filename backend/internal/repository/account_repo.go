@@ -840,7 +840,8 @@ func lockAndMergeAccountProbeExtra(
 			extra -> 'ollama_cloud_usage_session',
 			extra -> 'ollama_cloud_usage_auto_refresh',
 			extra -> 'ollama_cloud_usage_snapshot',
-			COALESCE(extra, '{}'::jsonb)
+			COALESCE(extra, '{}'::jsonb),
+			credentials -> 'custom_usage_secrets'
 		FROM accounts
 		WHERE id = $1 AND deleted_at IS NULL
 		FOR NO KEY UPDATE
@@ -867,6 +868,7 @@ func lockAndMergeAccountProbeExtra(
 		currentOllamaAutoRefresh     []byte
 		currentOllamaSnapshot        []byte
 		currentExtraJSON             []byte
+		currentCustomUsageSecrets    []byte
 	)
 	if err := rows.Scan(
 		&identityUnchanged,
@@ -879,6 +881,7 @@ func lockAndMergeAccountProbeExtra(
 		&currentOllamaAutoRefresh,
 		&currentOllamaSnapshot,
 		&currentExtraJSON,
+		&currentCustomUsageSecrets,
 	); err != nil {
 		return nil, err
 	}
@@ -900,6 +903,19 @@ func lockAndMergeAccountProbeExtra(
 		}
 	}
 	extra := service.MergeOpenAICodexTicketExtra(copyJSONMap(normalizeJSONMap(account.Extra)), currentExtra)
+	delete(extra, service.CustomUsageExtraKey)
+	if currentConfig, exists := currentExtra[service.CustomUsageExtraKey]; exists {
+		extra[service.CustomUsageExtraKey] = currentConfig
+	}
+	managedSecrets, _, err := decodeAccountExtraJSON(currentCustomUsageSecrets)
+	if err != nil {
+		return nil, err
+	}
+	account.Credentials = copyJSONMap(normalizeJSONMap(account.Credentials))
+	delete(account.Credentials, service.CustomUsageCredentialsKey)
+	if managedSecrets != nil {
+		account.Credentials[service.CustomUsageCredentialsKey] = managedSecrets
+	}
 	for _, key := range []string{
 		service.UpstreamBillingProbeEnabledExtraKey,
 		service.UpstreamBillingRateSyncEnabledExtraKey,
@@ -1024,7 +1040,10 @@ func (r *accountRepository) UpdateCredentials(ctx context.Context, id int64, cre
 	result, err := client.ExecContext(ctx, `
 		UPDATE accounts
 		SET
-			credentials = $1::jsonb,
+			credentials = ($1::jsonb - 'custom_usage_secrets')
+				|| CASE WHEN credentials ? 'custom_usage_secrets'
+					THEN jsonb_build_object('custom_usage_secrets', credentials -> 'custom_usage_secrets')
+					ELSE '{}'::jsonb END,
 			extra = CASE
 				-- 凭证整体未变化 ⇒ Ollama 组身份必然未变化；顶层 DISTINCT 守卫防止
 				-- 非 Ollama 账号的无变化持久化误清探测快照或重写 NULL extra。
@@ -2857,6 +2876,25 @@ func (r *accountRepository) SetSchedulable(ctx context.Context, id int64, schedu
 	return nil
 }
 
+// MarkScheduledQualityPause stamps the scheduled-quality pause reason onto an
+// account paused by the degradation checker. It only writes when the current
+// reason is empty or already ours, so an unrelated runtime ban on the same
+// account is preserved, and it never touches temp_unschedulable_until: the
+// pause is cleared by a passing check, not by expiry.
+func (r *accountRepository) MarkScheduledQualityPause(ctx context.Context, id int64, reason string) error {
+	_, err := r.sql.ExecContext(ctx, `
+		UPDATE accounts
+		SET temp_unschedulable_reason = $1,
+			updated_at = NOW()
+		WHERE id = $2
+			AND deleted_at IS NULL
+			AND (temp_unschedulable_reason IS NULL
+				OR temp_unschedulable_reason = ''
+				OR temp_unschedulable_reason LIKE 'scheduled_quality_check:%')
+	`, reason, id)
+	return err
+}
+
 func (r *accountRepository) AutoPauseExpiredAccounts(ctx context.Context, now time.Time) (int64, error) {
 	rows, err := r.sql.QueryContext(ctx, `
 		UPDATE accounts
@@ -3348,6 +3386,25 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 	if updates.ProbeEnabled != nil {
 		whereClause += " AND type = $" + itoa(idx)
 		args = append(args, service.AccountTypeAPIKey)
+		idx++
+	}
+	if updates.CustomUsageExpected != nil {
+		if len(ids) != 1 {
+			return 0, service.ErrCustomUsageConfig
+		}
+		expectedCredentials, err := json.Marshal(normalizeJSONMap(updates.CustomUsageExpected.Credentials))
+		if err != nil {
+			return 0, err
+		}
+		expectedConfig, err := json.Marshal(updates.CustomUsageExpected.Config)
+		if err != nil {
+			return 0, err
+		}
+		whereClause += " AND type = 'apikey' AND credentials = $" + itoa(idx) + "::jsonb"
+		args = append(args, expectedCredentials)
+		idx++
+		whereClause += " AND COALESCE(extra -> 'custom_usage_config', 'null'::jsonb) = $" + itoa(idx) + "::jsonb"
+		args = append(args, expectedConfig)
 	}
 	query := "UPDATE accounts SET " + joinClauses(setClauses, ", ") + whereClause
 

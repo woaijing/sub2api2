@@ -6978,20 +6978,29 @@
                     <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
                       {{
                         localText(
-                          "文档名称可自定义，内容按 Markdown 保存。可参考：服务条款、使用政策、支持的国家和地区、服务特定条款。",
-                          "Document titles are customizable and content is saved as Markdown.",
+                          "文档名称可自定义。正文留空时前台自动使用内置条款（按 OpenLux 结构改写，主体为本站运营方）。可一键填入隐私政策、服务条款、可接受使用政策、免责条款、退款政策、DPA、合规说明和支持地区。",
+                          "Titles are customizable. Empty bodies fall back to bundled terms adapted from the OpenLux structure for this site. You can fill Privacy, Terms, AUP, Disclaimer, Refund, DPA, Compliance and Supported regions in one click.",
                         )
                       }}
                     </p>
                   </div>
-                  <button
-                    type="button"
-                    class="btn btn-primary btn-sm inline-flex items-center gap-1.5"
-                    @click="addLoginAgreementDocument"
-                  >
-                    <Icon name="plus" size="sm" />
-                    {{ localText("添加文档", "Add document") }}
-                  </button>
+                  <div class="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      class="btn btn-secondary btn-sm inline-flex items-center gap-1.5"
+                      @click="fillBundledLoginAgreementDocuments"
+                    >
+                      {{ localText("填入内置条款", "Fill bundled terms") }}
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn-primary btn-sm inline-flex items-center gap-1.5"
+                      @click="addLoginAgreementDocument"
+                    >
+                      <Icon name="plus" size="sm" />
+                      {{ localText("添加文档", "Add document") }}
+                    </button>
+                  </div>
                 </div>
 
                 <div class="mt-4 space-y-3">
@@ -7062,7 +7071,7 @@
                             v-model="doc.id"
                             type="text"
                             class="min-w-0 flex-1 border-0 bg-transparent px-3 py-2 text-sm text-gray-900 outline-none placeholder:text-gray-400 focus:ring-0 dark:text-white dark:placeholder:text-dark-500"
-                            placeholder="usage-policy"
+                            placeholder="privacy"
                           />
                         </div>
                       </div>
@@ -7849,6 +7858,17 @@
                 <Toggle v-model="form.payment_enabled" />
               </div>
               <template v-if="form.payment_enabled">
+                <div class="flex items-center justify-between gap-4 border-b border-gray-200 pb-4 dark:border-dark-700">
+                  <div>
+                    <label class="font-medium text-gray-900 dark:text-white">
+                      {{ t("admin.settings.payment.rechargeCenterEnabled") }}
+                    </label>
+                    <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                      {{ t("admin.settings.payment.rechargeCenterEnabledHint") }}
+                    </p>
+                  </div>
+                  <Toggle v-model="form.payment_recharge_center_enabled" :aria-label="t('admin.settings.payment.rechargeCenterEnabled')" />
+                </div>
                 <!-- Row 1: Product name -->
                 <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
                   <div>
@@ -8916,6 +8936,10 @@ import { useAppStore } from "@/stores";
 import { useAdminSettingsStore } from "@/stores/adminSettings";
 import { normalizeVisibleMethod } from "@/components/payment/paymentFlow";
 import {
+  bundledLegalDocuments,
+  resolveLegalDocumentId,
+} from "@/legal/catalog";
+import {
   isRegistrationEmailSuffixDomainValid,
   normalizeRegistrationEmailSuffixDomain,
   normalizeRegistrationEmailSuffixDomains,
@@ -9139,28 +9163,12 @@ const tablePageSizeMax = 1000;
 const tablePageSizeDefault = 20;
 
 function defaultLoginAgreementDocuments(): LoginAgreementDocument[] {
-  return [
-    {
-      id: "terms",
-      title: localText("服务条款", "Terms of Service"),
-      content_md: "",
-    },
-    {
-      id: "usage-policy",
-      title: localText("使用政策", "Usage Policy"),
-      content_md: "",
-    },
-    {
-      id: "supported-regions",
-      title: localText("支持的国家和地区", "Supported Countries and Regions"),
-      content_md: "",
-    },
-    {
-      id: "service-specific-terms",
-      title: localText("服务特定条款", "Service-Specific Terms"),
-      content_md: "",
-    },
-  ];
+  const locale = isZhLocale.value ? "zh" : "en";
+  return bundledLegalDocuments(locale).map((doc) => ({
+    id: doc.id,
+    title: doc.title,
+    content_md: "",
+  }));
 }
 
 function normalizeLoginAgreementDocumentId(raw: string): string {
@@ -9573,6 +9581,7 @@ type SettingsForm = Omit<
   channel_monitor_hide_throughput: boolean;
   channel_monitor_show_quota: boolean;
   channel_monitor_hide_user_ranking: boolean;
+  payment_recharge_center_enabled: boolean;
   smtp_password: string;
   turnstile_secret_key: string;
   tencent_captcha_app_secret_key: string;
@@ -9661,6 +9670,7 @@ const form = reactive<SettingsForm>({
   backend_mode_enabled: false,
   hide_ccs_import_button: false,
   payment_enabled: false,
+  payment_recharge_center_enabled: false,
   risk_control_enabled: false,
   cyber_session_block_enabled: false,
   cyber_session_block_ttl_seconds: 3600,
@@ -10718,6 +10728,73 @@ function addLoginAgreementDocument() {
   });
 }
 
+function fillBundledLoginAgreementDocuments() {
+  const locale = isZhLocale.value ? "zh" : "en";
+  const existing = new Map<string, LoginAgreementDocument>();
+  for (const doc of form.login_agreement_documents) {
+    const canonical =
+      resolveLegalDocumentId(doc.id) ||
+      normalizeLoginAgreementDocumentId(doc.id);
+    if (canonical) {
+      existing.set(canonical, doc);
+    }
+  }
+  for (const bundled of bundledLegalDocuments(locale)) {
+    const found = existing.get(bundled.id);
+    if (found) {
+      if (!found.title.trim()) {
+        found.title = bundled.title;
+      }
+      found.content_md = bundled.content_md;
+      continue;
+    }
+    form.login_agreement_documents.push({
+      id: bundled.id,
+      title: bundled.title,
+      content_md: bundled.content_md,
+    });
+  }
+}
+
+function ensureBundledLoginAgreementDocuments(
+  documents: LoginAgreementDocument[],
+): LoginAgreementDocument[] {
+  const locale = isZhLocale.value ? "zh" : "en";
+  const next = documents.map((doc) => ({ ...doc }));
+  const seen = new Set<string>();
+  for (const doc of next) {
+    const canonical =
+      resolveLegalDocumentId(doc.id) ||
+      normalizeLoginAgreementDocumentId(doc.id);
+    if (!canonical) {
+      continue;
+    }
+    seen.add(canonical);
+    if (!doc.title.trim()) {
+      const bundled = bundledLegalDocuments(locale).find((item) => item.id === canonical);
+      if (bundled) {
+        doc.title = bundled.title;
+      }
+    }
+    if (!doc.content_md.trim()) {
+      const bundled = bundledLegalDocuments(locale).find((item) => item.id === canonical);
+      if (bundled) {
+        doc.content_md = bundled.content_md;
+      }
+    }
+  }
+  for (const bundled of bundledLegalDocuments(locale)) {
+    if (!seen.has(bundled.id)) {
+      next.push({
+        id: bundled.id,
+        title: bundled.title,
+        content_md: bundled.content_md,
+      });
+    }
+  }
+  return next;
+}
+
 function removeLoginAgreementDocument(index: number) {
   form.login_agreement_documents.splice(index, 1);
 }
@@ -10909,15 +10986,16 @@ async function loadSettings() {
     );
     form.login_agreement_updated_at =
       settings.login_agreement_updated_at || "2026-03-31";
-    form.login_agreement_documents =
+    form.login_agreement_documents = ensureBundledLoginAgreementDocuments(
       Array.isArray(settings.login_agreement_documents) &&
-      settings.login_agreement_documents.length > 0
+        settings.login_agreement_documents.length > 0
         ? settings.login_agreement_documents.map((doc) => ({
             id: doc.id || "",
             title: doc.title || "",
             content_md: doc.content_md || "",
           }))
-        : defaultLoginAgreementDocuments();
+        : defaultLoginAgreementDocuments(),
+    );
     Object.assign(authSourceDefaults, buildAuthSourceDefaultsState(settings));
     form.default_platform_quotas = normalizePlatformQuotasMap(settings.default_platform_quotas);
     form.account_scheduling_thresholds = normalizeAccountSchedulingThresholdsMap(
@@ -11481,6 +11559,7 @@ async function saveSettings() {
       ),
       // Payment configuration
       payment_enabled: form.payment_enabled,
+      payment_recharge_center_enabled: form.payment_recharge_center_enabled,
       risk_control_enabled: form.risk_control_enabled,
       cyber_session_block_enabled: form.cyber_session_block_enabled,
       cyber_session_block_ttl_seconds:

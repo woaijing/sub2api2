@@ -152,8 +152,14 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 	service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
 	bindingGroupID := apiKey.GroupID
 	var videoPending *service.GrokVideoPendingBilling
+	var durableVideo *service.MediaBillingJob
 	if endpoint.IsVideoLookupRequest() {
-		apiKey, subscription, videoPending, err = h.restoreGrokVideoBillingRoute(c, apiKey, subscription, requestID, subject.UserID)
+		durableVideo, err = h.gatewayService.LoadGrokVideoBillingJob(c.Request.Context(), subject.UserID, apiKey.ID, requestID)
+		if err == nil && durableVideo != nil {
+			videoPending, err = service.GrokVideoBillingJobPending(durableVideo)
+		} else if err == nil {
+			apiKey, subscription, videoPending, err = h.restoreGrokVideoBillingRoute(c, apiKey, subscription, requestID, subject.UserID)
+		}
 		if err != nil {
 			reqLog.Error("grok_media.video_billing_route_unavailable", zap.String("request_id", requestID), zap.Error(err))
 			h.errorResponse(c, http.StatusServiceUnavailable, "billing_error", "Video billing information is temporarily unavailable")
@@ -172,7 +178,12 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 		defer userReleaseFunc()
 	}
 
-	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
+	if err := func() error {
+		if durableVideo != nil {
+			return nil
+		}
+		return h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey))
+	}(); err != nil {
 		reqLog.Info("grok_media.billing_eligibility_check_failed", zap.Error(err))
 		status, code, message, retryAfter := billingErrorDetails(err)
 		if retryAfter > 0 {
@@ -190,9 +201,13 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 	boundLookupAccountID := int64(0)
 	if endpoint.IsVideoLookupRequest() {
 		sessionHash = service.GrokMediaVideoRequestSessionHash(requestID, subject.UserID, apiKey.ID)
-		boundLookupAccountID, err = h.gatewayService.ResolveGrokMediaVideoRequestAccount(
-			c.Request.Context(), bindingGroupID, requestID, subject.UserID, apiKey.ID,
-		)
+		if durableVideo != nil {
+			boundLookupAccountID = durableVideo.AccountID
+		} else {
+			boundLookupAccountID, err = h.gatewayService.ResolveGrokMediaVideoRequestAccount(
+				c.Request.Context(), bindingGroupID, requestID, subject.UserID, apiKey.ID,
+			)
+		}
 		if err != nil || boundLookupAccountID <= 0 {
 			reqLog.Warn("grok_media.video_lookup_owner_binding_missing", zap.Error(err))
 			h.errorResponse(c, http.StatusNotFound, "not_found_error", "Video request not found")
@@ -240,6 +255,7 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 	var lastFailoverErr *service.UpstreamFailoverError
 	oauth429FailoverState := service.OpenAIOAuth429FailoverState{FillScheduling: true}
 	mediaEligibilityRejected := false
+	accountSlotBusySeen := false
 	switchCount := 0
 	videoCreateStartedAt := ""
 	if isGrokVideoCreateEndpoint(endpoint) {
@@ -281,12 +297,18 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 			if maxConcurrency <= 0 {
 				maxConcurrency = 1
 			}
+			waitTimeout := 5 * time.Second
+			if h.cfg != nil {
+				if cfgTimeout := h.cfg.Gateway.Scheduling.StickySessionWaitTimeout; cfgTimeout > 0 && cfgTimeout < waitTimeout {
+					waitTimeout = cfgTimeout
+				}
+			}
 			selection = &service.AccountSelectionResult{
 				Account: boundAccount,
 				WaitPlan: &service.AccountWaitPlan{
 					AccountID:      boundAccount.ID,
 					MaxConcurrency: maxConcurrency,
-					Timeout:        5 * time.Second,
+					Timeout:        waitTimeout,
 					MaxWaiting:     32,
 				},
 			}
@@ -360,12 +382,18 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 			}
 			if lastFailoverErr != nil {
 				h.handleFailoverExhausted(c, lastFailoverErr, false)
+			} else if accountSlotBusySeen {
+				h.handleOpenAIAccountSlotBusyExhausted(c, streamStarted, reqLog)
 			} else {
 				h.errorResponse(c, http.StatusBadGateway, "api_error", "Upstream request failed")
 			}
 			return
 		}
 		if selection == nil || selection.Account == nil {
+			if accountSlotBusySeen && lastFailoverErr == nil && boundLookupAccountID == 0 {
+				h.handleOpenAIAccountSlotBusyExhausted(c, streamStarted, reqLog)
+				return
+			}
 			if endpoint.IsGenerationRequest() {
 				markOpsRoutingCapacityLimited(c)
 				h.errorResponse(c, http.StatusServiceUnavailable, "grok_media_no_eligible_account", "No eligible Grok media accounts")
@@ -433,27 +461,101 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 		}
 		var slotResult openAISlotAcquireResult
 		accountReleaseFunc, slotResult = h.acquireResponsesAccountSlot(c, apiKey.GroupID, admissionSessionHash, selection, false, &streamStarted, reqLog)
-		if slotResult == openAISlotAcquireProfitVetoed {
-			// 媒体路径已显式豁免利润门（suppress 标记），此分支仅防御性兜底，
-			// 同样受否决上限约束。
-			if !recordOpenAIProfitVeto(failedAccountIDs, account.ID, &profitVetoCount) {
-				h.handleOpenAIProfitVetoExhausted(c, streamStarted, reqLog, profitVetoCount)
+		if boundLookupAccountID > 0 && slotResult == openAISlotAcquireBusy {
+			// Video status/content is pinned to the creating account; wait instead of rotating.
+			timeout := 5 * time.Second
+			maxConcurrency := account.Concurrency
+			if selection.WaitPlan != nil {
+				if selection.WaitPlan.Timeout > 0 {
+					timeout = selection.WaitPlan.Timeout
+				}
+				if selection.WaitPlan.MaxConcurrency > 0 {
+					maxConcurrency = selection.WaitPlan.MaxConcurrency
+				}
+			}
+			waitRelease, waitErr := h.concurrencyHelper.AcquireAccountSlotWithWaitTimeout(c, account.ID, maxConcurrency, timeout, false, &streamStarted)
+			if waitErr != nil {
+				if failoverClientGone(c) {
+					return
+				}
+				status, errType, code, message := concurrencyErrorResponse(waitErr, "account")
+				h.handleStreamingAwareErrorWithCode(c, status, errType, code, message, streamStarted, false)
 				return
 			}
-			continue
-		}
-		if slotResult != openAISlotAcquireOK {
-			return
+			accountReleaseFunc = wrapReleaseOnDone(requestCtx, waitRelease)
+		} else {
+			switch h.openAISlotLoopAction(c, slotResult, account.ID, apiKey.GroupID, admissionSessionHash, failedAccountIDs, &profitVetoCount, streamStarted, reqLog, &accountSlotBusySeen) {
+			case openAISlotLoopStop:
+				return
+			case openAISlotLoopRotate:
+				continue
+			}
 		}
 
 		service.SetOpsLatencyMs(c, service.OpsRoutingLatencyMsKey, time.Since(routingStart).Milliseconds())
+		var createJob *service.MediaBillingJob
+		videoRequestStarted, videoRequestRejected := false, false
 		if isGrokVideoCreateEndpoint(endpoint) {
-			requestCtx = service.ContextWithGrokVideoBindOwner(requestCtx, service.GrokVideoBindOwner{
+			pending := &service.GrokVideoPendingBilling{
+				GroupID: derefGroupID(apiKey.GroupID), BindingGroupID: derefGroupID(bindingGroupID),
+				Model: routingModel, OriginalModel: clientRequestedModel(c, requestModel), CreatedAt: videoCreateStartedAt,
+				BillingModel: routingModel, UpstreamModel: account.GetMappedModel(routingModel),
+				VideoResolution: requestInfo.Resolution, VideoDurationSeconds: requestInfo.DurationSeconds,
+			}
+			createJob, err = h.gatewayService.CreateGrokVideoBillingJob(requestCtx, &service.OpenAIRecordUsageInput{
+				Result: &service.OpenAIForwardResult{Model: routingModel, BillingModel: routingModel, UpstreamModel: pending.UpstreamModel},
+				APIKey: apiKey, User: apiKey.User, Account: account, Subscription: subscription, PricingAt: pricingAt,
+				APIKeyService: h.apiKeyService, InboundEndpoint: GetInboundEndpoint(c), UpstreamEndpoint: string(endpoint),
+				RequestPayloadHash: service.HashUsageRequestPayload(body), QuotaPlatform: service.PlatformGrok,
+				ChannelUsageFields: service.ChannelUsageFields{OriginalModel: pending.OriginalModel, ChannelMappedModel: routingModel},
+			}, *pending)
+			if err != nil {
+				h.handlePreauthorizationError(c, err, false)
+				return
+			}
+			owner := service.GrokVideoBindOwner{
 				GroupID: bindingGroupID, UserID: subject.UserID, APIKeyID: apiKey.ID,
-				PendingBilling: &service.GrokVideoPendingBilling{
-					GroupID: derefGroupID(apiKey.GroupID), BindingGroupID: derefGroupID(bindingGroupID),
-					Model: requestModel, OriginalModel: clientRequestedModel(c, requestModel), CreatedAt: videoCreateStartedAt,
-				},
+				PendingBilling: pending,
+			}
+			if createJob != nil {
+				pending.DurableJobID = createJob.ID
+				owner.OnRequestStarted = func() { videoRequestStarted = true }
+				owner.OnAccepted = func(ctx context.Context, taskID string, accepted service.GrokVideoPendingBilling) error {
+					return h.gatewayService.SubmitGrokVideoBillingJob(ctx, createJob, taskID, accepted)
+				}
+				owner.OnRejected = func(ctx context.Context) error {
+					if err := h.gatewayService.FailGrokVideoBillingJob(ctx, createJob); err != nil {
+						return err
+					}
+					videoRequestRejected = true
+					return nil
+				}
+			}
+			requestCtx = service.ContextWithGrokVideoBindOwner(requestCtx, owner)
+		}
+		if durableVideo != nil {
+			requestCtx = service.ContextWithGrokMediaBeforePublish(requestCtx, func(ctx context.Context, result *service.OpenAIForwardResult) error {
+				return h.gatewayService.SettleGrokVideoBillingJob(ctx, durableVideo, result)
+			})
+		} else if h.gatewayService.HasDurableMediaBilling() && (endpoint.IsVideoLookupRequest() || endpoint.IsImageGenerationRequest()) {
+			requestCtx = service.ContextWithGrokMediaBeforePublish(requestCtx, func(ctx context.Context, result *service.OpenAIForwardResult) error {
+				if endpoint.IsVideoLookupRequest() {
+					billable := result != nil && result.VideoCount > 0
+					result = prepareGrokVideoCompletionBilling(ctx, h, reqLog, apiKey, subject, requestID, result, videoPending)
+					if result == nil {
+						if billable {
+							return errors.New("video billing snapshot is unavailable")
+						}
+						return nil
+					}
+				}
+				err := recordGrokMediaUsage(c, h, reqLog, apiKey, subject, subscription, account, result, requestModel, body, requestID)
+				if endpoint.IsImageGenerationRequest() && mediaSettlementRequired(c) && errors.Is(err, service.ErrMediaBillingPending) {
+					// This writer is a private async-task recorder. Retain the
+					// generated image for publication after durable settlement.
+					return nil
+				}
+				return err
 			})
 		}
 		forwardStart := time.Now()
@@ -472,6 +574,19 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 		service.SetOpsLatencyMs(c, service.OpsResponseLatencyMsKey, responseLatencyMs)
 
 		if err != nil {
+			if createJob != nil && !videoRequestRejected {
+				if !videoRequestStarted {
+					if refundErr := h.gatewayService.FailGrokVideoBillingJob(requestCtx, createJob); refundErr != nil {
+						reqLog.Error("grok_media.refund_failed", zap.String("job_id", createJob.ID), zap.Error(refundErr))
+					}
+				} else {
+					reqLog.Error("grok_media.submission_needs_reconciliation", zap.String("job_id", createJob.ID))
+				}
+				if !service.IsResponseCommitted(c) {
+					h.errorResponse(c, http.StatusServiceUnavailable, "billing_error", "Video submission is being reconciled; do not resubmit")
+				}
+				return
+			}
 			if errors.Is(err, service.ErrBillingServiceUnavailable) {
 				reqLog.Error("grok_media.video_pending_billing_store_failed", zap.Int64("account_id", account.ID), zap.Error(err))
 				h.errorResponse(c, http.StatusServiceUnavailable, "billing_error", "Video billing information is temporarily unavailable")
@@ -575,13 +690,19 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 		}
 		// Status poll OR content download can observe official done+video.url.
 		// Both paths share the same claim key so the customer is charged once.
-		if endpoint.IsVideoLookupRequest() {
+		if h.gatewayService.HasDurableMediaBilling() {
+			// Media has already settled in the service's before-publication hook.
+		} else if endpoint.IsVideoLookupRequest() && durableVideo == nil {
 			taskID := strings.TrimSpace(requestID)
 			if billResult := prepareGrokVideoCompletionBilling(requestCtx, h, reqLog, apiKey, subject, taskID, result, videoPending); billResult != nil {
-				recordGrokMediaUsage(c, h, reqLog, apiKey, subject, subscription, account, billResult, billResult.Model, body, taskID)
+				if err := recordGrokMediaUsage(c, h, reqLog, apiKey, subject, subscription, account, billResult, billResult.Model, body, taskID); err != nil {
+					reqLog.Error("grok_media.record_usage_failed", zap.Error(err))
+				}
 			}
 		} else if shouldRecordGrokMediaUsage(endpoint, requestModel, result) {
-			recordGrokMediaUsage(c, h, reqLog, apiKey, subject, subscription, account, result, requestModel, body, requestID)
+			if err := recordGrokMediaUsage(c, h, reqLog, apiKey, subject, subscription, account, result, requestModel, body, requestID); err != nil {
+				reqLog.Error("grok_media.record_usage_failed", zap.Error(err))
+			}
 		}
 		reqLog.Debug("grok_media.request_completed",
 			zap.Int64("account_id", account.ID),
@@ -753,14 +874,15 @@ func prepareGrokVideoCompletionBilling(
 		reqLog.Error("grok_media.video_billing_group_mismatch", zap.String("request_id", taskRequestID), zap.Int64("group_id", pending.GroupID))
 		return nil
 	}
-	claimed, err := h.gatewayService.ClaimGrokVideoBilling(ctx, taskRequestID, subject.UserID, apiKey.ID)
-	if err != nil {
-		reqLog.Warn("grok_media.video_billing_claim_failed", zap.String("request_id", taskRequestID), zap.Error(err))
-		return nil
-	}
-	if !claimed {
-		reqLog.Debug("grok_media.video_billing_already_claimed", zap.String("request_id", taskRequestID))
-		return nil
+	if !h.gatewayService.HasDurableMediaBilling() {
+		claimed, err := h.gatewayService.ClaimGrokVideoBilling(ctx, taskRequestID, subject.UserID, apiKey.ID)
+		if err != nil {
+			reqLog.Warn("grok_media.video_billing_claim_failed", zap.String("request_id", taskRequestID), zap.Error(err))
+			return nil
+		}
+		if !claimed {
+			return nil
+		}
 	}
 	// Re-merge with pending: resolution is request-only; model/duration fill gaps.
 	merged := *statusResult
@@ -834,7 +956,7 @@ func recordGrokMediaUsage(
 	requestModel string,
 	body []byte,
 	requestID string,
-) {
+) error {
 	userAgent := c.GetHeader("User-Agent")
 	clientIP := ip.GetClientIP(c)
 	sessionID := service.ExtractClientSessionID(c)
@@ -864,23 +986,29 @@ func recordGrokMediaUsage(
 			payloadForHash = []byte(videoTaskID)
 		}
 	}
+	input := &service.OpenAIRecordUsageInput{
+		Result:             result,
+		APIKey:             apiKey,
+		User:               apiKey.User,
+		Account:            account,
+		Subscription:       subscription,
+		InboundEndpoint:    inboundEndpoint,
+		UpstreamEndpoint:   upstreamEndpoint,
+		UserAgent:          userAgent,
+		IPAddress:          clientIP,
+		RequestPayloadHash: service.HashUsageRequestPayload(payloadForHash),
+		APIKeyService:      h.apiKeyService,
+		QuotaPlatform:      quotaPlatform,
+		SessionID:          sessionID,
+		ChannelUsageFields: channelUsageFields,
+	}
+	if h.gatewayService.HasDurableMediaBilling() || mediaSettlementRequired(c) {
+		err := h.gatewayService.RecordMediaUsage(c.Request.Context(), input)
+		recordMediaSettlementResult(c, err)
+		return err
+	}
 	h.submitOpenAIUsageRecordTask(c.Request.Context(), result, func(ctx context.Context) {
-		if err := h.gatewayService.RecordUsage(ctx, &service.OpenAIRecordUsageInput{
-			Result:             result,
-			APIKey:             apiKey,
-			User:               apiKey.User,
-			Account:            account,
-			Subscription:       subscription,
-			InboundEndpoint:    inboundEndpoint,
-			UpstreamEndpoint:   upstreamEndpoint,
-			UserAgent:          userAgent,
-			IPAddress:          clientIP,
-			RequestPayloadHash: service.HashUsageRequestPayload(payloadForHash),
-			APIKeyService:      h.apiKeyService,
-			QuotaPlatform:      quotaPlatform,
-			SessionID:          sessionID,
-			ChannelUsageFields: channelUsageFields,
-		}); err != nil {
+		if err := h.gatewayService.RecordUsage(ctx, input); err != nil {
 			if videoTaskID != "" {
 				if releaseErr := h.gatewayService.ReleaseGrokVideoBilling(ctx, videoTaskID, subject.UserID, apiKey.ID); releaseErr != nil {
 					reqLog.Warn("grok_media.video_billing_claim_release_failed",
@@ -900,4 +1028,5 @@ func recordGrokMediaUsage(
 			reqLog.Debug("grok_media.record_usage_failed", zap.Error(err))
 		}
 	})
+	return nil
 }

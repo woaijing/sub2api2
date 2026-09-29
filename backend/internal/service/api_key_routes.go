@@ -220,6 +220,25 @@ func skipKeyRouteForCatalog(presence groupCatalogModelPresence, siblingHasPresen
 	}
 }
 
+// groupPassthroughsRequestedModel reports whether a group may still serve a
+// model that its account-mapping catalog does not list. Official routing
+// passthroughs unmapped IDs onto accounts of the matching platform; the catalog
+// is not a closed allowlist unless the group enabled one.
+func groupPassthroughsRequestedModel(group *Group, requestedModel string, schedulable map[string]struct{}) bool {
+	if group != nil && group.CustomModelsListEnabled() {
+		return false
+	}
+	detected, ok := DetectModelPlatform(requestedModel)
+	if !ok {
+		return false
+	}
+	if group != nil && (group.Platform == detected || group.Platform == PlatformComposite) {
+		return true
+	}
+	_, ok = schedulable[detected]
+	return ok
+}
+
 func keyRouteSiblingHasCatalogedModel(ctx context.Context, groupIDs []int64, requestedModel string, getModels groupCatalogModelLookup) bool {
 	requestedModel = strings.TrimSpace(requestedModel)
 	if requestedModel == "" || getModels == nil {
@@ -251,7 +270,15 @@ func (s *GatewayService) shouldTryKeyRouteGroup(ctx context.Context, groupID int
 	if group != nil && group.CustomModelsListEnabled() {
 		return true
 	}
-	return !skipKeyRouteForCatalog(s.groupCatalogHasRequestedModel(ctx, groupID, requestedModel), siblingHasPresent)
+	presence := s.groupCatalogHasRequestedModel(ctx, groupID, requestedModel)
+	if !skipKeyRouteForCatalog(presence, siblingHasPresent) {
+		return true
+	}
+	if siblingHasPresent {
+		return false
+	}
+	gid := groupID
+	return groupPassthroughsRequestedModel(group, requestedModel, s.GetSchedulablePlatforms(ctx, &gid))
 }
 
 func (s *GatewayService) groupCatalogUsableForRequest(ctx context.Context, groupID int64, requestPlatform, requestedModel string) bool {
@@ -260,16 +287,23 @@ func (s *GatewayService) groupCatalogUsableForRequest(ctx context.Context, group
 	}
 	gid := groupID
 	group := s.GroupPolicyForRequest(ctx, gid)
+	platforms := s.GetSchedulablePlatforms(ctx, &gid)
 	if group == nil {
-		return s.groupCatalogHasRequestedModel(ctx, groupID, requestedModel) != groupCatalogModelAbsent
+		if s.groupCatalogHasRequestedModel(ctx, groupID, requestedModel) != groupCatalogModelAbsent {
+			return true
+		}
+		return groupPassthroughsRequestedModel(nil, requestedModel, platforms)
 	}
-	if !groupUsableForRequest(group, requestPlatform, requestedModel, s.GetSchedulablePlatforms(ctx, &gid)) {
+	if !groupUsableForRequest(group, requestPlatform, requestedModel, platforms) {
 		return false
 	}
 	if group.CustomModelsListEnabled() {
 		return true
 	}
-	return s.groupCatalogHasRequestedModel(ctx, groupID, requestedModel) != groupCatalogModelAbsent
+	if s.groupCatalogHasRequestedModel(ctx, groupID, requestedModel) != groupCatalogModelAbsent {
+		return true
+	}
+	return groupPassthroughsRequestedModel(group, requestedModel, platforms)
 }
 
 // UpstreamPlatformForModel prefers the platform of a schedulable account that
@@ -288,11 +322,12 @@ func (s *GatewayService) UpstreamPlatformForModel(ctx context.Context, apiKey *A
 	if len(ids) == 0 && apiKey.Group != nil && apiKey.Group.ID > 0 {
 		ids = []int64{apiKey.Group.ID}
 	}
+	detected, detectedOK := DetectModelPlatform(model)
 	prefer := []string{
 		PlatformOpenAI, PlatformGrok, PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax,
 		PlatformAnthropic, PlatformGemini, PlatformAntigravity,
 	}
-	if detected, ok := DetectModelPlatform(model); ok && detected == PlatformGrok {
+	if detectedOK && detected == PlatformGrok {
 		prefer = []string{
 			PlatformGrok, PlatformOpenAI, PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax,
 			PlatformAnthropic, PlatformGemini, PlatformAntigravity,
@@ -316,6 +351,23 @@ func (s *GatewayService) UpstreamPlatformForModel(ctx context.Context, apiKey *A
 			sawCatalog = true
 			if modelsAdmitRequestedModel(models, model) {
 				return platform, true
+			}
+		}
+	}
+	// Catalog miss is not a closed world. A grok-* (or gpt-*, claude-*) ID that
+	// no mapping lists yet still belongs on a matching-platform candidate group.
+	if detectedOK {
+		for _, gid := range ids {
+			gid := gid
+			group := s.GroupPolicyForRequest(ctx, gid)
+			if group == nil && apiKey.Group != nil && apiKey.Group.ID == gid {
+				group = apiKey.Group
+			}
+			if !groupAllowsRequestedModel(group, model) {
+				continue
+			}
+			if groupPassthroughsRequestedModel(group, model, s.GetSchedulablePlatforms(ctx, &gid)) {
+				return detected, true
 			}
 		}
 	}
@@ -373,47 +425,113 @@ type apiKeyRouteCandidate struct {
 	model    string
 }
 
-// Resolve authorization before catalog reads or sticky selection. Reuse each
-// catalog for sibling preference and selection within this request.
-func prepareAPIKeyRouteCandidates(ctx context.Context, apiKey *APIKey, requestedModel string,
+type apiKeyRouteIterator struct {
+	ctx               context.Context
+	apiKey            *APIKey
+	groupIDs          []int64
+	requestedModel    string
+	hydrate           func(context.Context, *APIKey, int64) (*APIKey, error)
+	resolveCandidate  func(context.Context, *APIKey) (*APIKey, error)
+	catalog           func(context.Context, *int64) groupModelsCatalog
+	resolveMapping    func(context.Context, *int64, string) (ChannelMappingResult, bool)
+	fallbackModel     func(context.Context, *Group, string) string
+	candidates        []apiKeyRouteCandidate
+	nextGroup         int
+	nextCandidate     int
+	siblingHasPresent bool
+	err               error
+}
+
+func newAPIKeyRouteIterator(ctx context.Context, apiKey *APIKey, groupIDs []int64, requestedModel string,
 	hydrate func(context.Context, *APIKey, int64) (*APIKey, error),
+	resolveCandidate func(context.Context, *APIKey) (*APIKey, error),
 	catalog func(context.Context, *int64) groupModelsCatalog,
 	resolveMapping func(context.Context, *int64, string) (ChannelMappingResult, bool),
 	fallbackModel func(context.Context, *Group, string) string,
-) ([]apiKeyRouteCandidate, bool, error) {
-	var candidates []apiKeyRouteCandidate
-	var lastErr error
-	siblingHasPresent := false
-	for _, groupID := range apiKey.CandidateGroupIDs() {
-		routed, err := hydrate(ctx, apiKey, groupID)
+) apiKeyRouteIterator {
+	return apiKeyRouteIterator{
+		ctx: ctx, apiKey: apiKey, groupIDs: groupIDs, requestedModel: requestedModel,
+		hydrate: hydrate, resolveCandidate: resolveCandidate, catalog: catalog,
+		resolveMapping: resolveMapping, fallbackModel: fallbackModel,
+	}
+}
+
+// Look ahead only for unknown catalogs: a later authorized group that explicitly
+// supports the model must still take precedence over unknown earlier groups.
+func (r *apiKeyRouteIterator) next() (apiKeyRouteCandidate, bool) {
+	for {
+		if r.nextCandidate == len(r.candidates) {
+			r.candidates = r.candidates[:0]
+			r.nextCandidate = 0
+			if !r.loadNext() {
+				return apiKeyRouteCandidate{}, false
+			}
+		}
+		candidate := r.candidates[r.nextCandidate]
+		r.nextCandidate++
+		if !candidate.key.Group.CustomModelsListEnabled() {
+			if candidate.presence == groupCatalogModelUnknown {
+				for !r.siblingHasPresent && r.loadNext() {
+				}
+			}
+			if skipKeyRouteForCatalog(candidate.presence, r.siblingHasPresent) &&
+				(r.siblingHasPresent ||
+					!groupPassthroughsRequestedModel(candidate.key.Group, r.requestedModel, candidate.catalog.platforms)) {
+				continue
+			}
+		}
+		return candidate, true
+	}
+}
+
+// Authorization and mapping remain candidate-scoped and precede catalog reads.
+func (r *apiKeyRouteIterator) loadNext() bool {
+	for r.nextGroup < len(r.groupIDs) {
+		groupID := r.groupIDs[r.nextGroup]
+		r.nextGroup++
+		routed, err := r.hydrate(r.ctx, r.apiKey, groupID)
 		if err != nil {
-			lastErr = err
+			r.err = err
 			continue
 		}
-		if !apiKeyRouteGroupAllowed(routed) || !groupAllowsRequestedModel(routed.Group, requestedModel) {
+		// Route authorization applies to the API-key-bound candidate. A Claude
+		// fallback is an official group-level redirect and must not be rejected
+		// again as if it were directly bound to the key.
+		if !apiKeyRouteGroupAllowed(routed) || !groupAllowsRequestedModel(routed.Group, r.requestedModel) {
 			continue
 		}
-		routeCtx := ContextWithAPIKeyRoute(ctx, routed)
-		mapping, restricted := resolveMapping(routeCtx, routed.GroupID, requestedModel)
+		if r.resolveCandidate != nil {
+			routed, err = r.resolveCandidate(ContextWithAPIKeyRoute(r.ctx, routed), routed)
+			if err != nil {
+				r.err = err
+				continue
+			}
+		}
+		if routed == nil || routed.Group == nil || !groupAllowsRequestedModel(routed.Group, r.requestedModel) {
+			continue
+		}
+		routeCtx := ContextWithAPIKeyRoute(r.ctx, routed)
+		mapping, restricted := r.resolveMapping(routeCtx, routed.GroupID, r.requestedModel)
 		if restricted {
 			continue
 		}
 		model := mapping.MappedModel
-		if !mapping.Mapped && fallbackModel != nil {
-			model = fallbackModel(routeCtx, routed.Group, requestedModel)
+		if !mapping.Mapped && r.fallbackModel != nil {
+			model = r.fallbackModel(routeCtx, routed.Group, r.requestedModel)
 		}
-		cat := catalog(routeCtx, routed.GroupID)
-		presence := catalogHasRequestedModel(cat, requestedModel)
-		if presence != groupCatalogModelPresent && model != requestedModel &&
+		cat := r.catalog(routeCtx, routed.GroupID)
+		presence := catalogHasRequestedModel(cat, r.requestedModel)
+		if presence != groupCatalogModelPresent && model != r.requestedModel &&
 			catalogHasRequestedModel(cat, model) == groupCatalogModelPresent {
 			presence = groupCatalogModelPresent
 		}
 		if presence == groupCatalogModelPresent {
-			siblingHasPresent = true
+			r.siblingHasPresent = true
 		}
-		candidates = append(candidates, apiKeyRouteCandidate{key: routed, catalog: cat, presence: presence, model: model})
+		r.candidates = append(r.candidates, apiKeyRouteCandidate{key: routed, catalog: cat, presence: presence, model: model})
+		return true
 	}
-	return candidates, siblingHasPresent, lastErr
+	return false
 }
 
 func hydrateAPIKeyGroup(ctx context.Context, apiKey *APIKey, groupID int64, getGroup func(context.Context, int64) (*Group, error)) (*APIKey, error) {

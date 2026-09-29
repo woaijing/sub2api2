@@ -93,6 +93,10 @@
   max-width: 1680px;
 }
 
+.console-workspace .console-main:has(> .console-usage, > .admin-usage-workbench, > .accounts-workspace) {
+  max-width: none;
+}
+
 .console-workspace :is(.console-masthead, .console-workspace-heading, .console-channel-masthead, .console-account-heading) {
   padding-bottom: 22px;
 }

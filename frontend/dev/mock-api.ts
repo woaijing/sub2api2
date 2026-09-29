@@ -1,4 +1,3 @@
-import { isIP } from 'node:net'
 import type {
   AdminUsageLog,
   DashboardStats,
@@ -13,7 +12,30 @@ import type {
 } from '../src/types'
 import type { MonitorMatrixGroupBy, MonitorMatrixRow } from '../src/api/channelMonitorV2'
 import type { PaymentOrder } from '../src/types/payment'
+import { readFileSync } from 'node:fs'
+
+// Local preview fixture: a real generated artwork so the hover player shows a
+// lifelike animation instead of a placeholder.
+const qualityDemoArtwork = readFileSync(new URL('./quality-demo-artwork.html', import.meta.url), 'utf8')
+const qualityDemoEvents = [
+  { id: 906, minutesAgo: 6, status: 'success', errorMessage: '' },
+  { id: 905, minutesAgo: 14, status: 'degraded', errorMessage: 'feet do not plausibly contact crank pedals; pedaling and wheel motion are not coordinated' },
+  { id: 904, minutesAgo: 26, status: 'success', errorMessage: '' },
+  { id: 903, minutesAgo: 41, status: 'success', errorMessage: '' },
+  { id: 902, minutesAgo: 58, status: 'success', errorMessage: '' },
+  { id: 901, minutesAgo: 73, status: 'degraded', errorMessage: 'bicycle structure is disconnected or incomplete' },
+].map((entry, index) => ({
+  id: entry.id,
+  group_id: 1,
+  account_id: 29170 - index,
+  model_id: 'gpt-5.6-sol',
+  status: entry.status,
+  error_message: entry.errorMessage,
+  created_at: new Date(Date.now() - entry.minutesAgo * 60_000).toISOString(),
+}))
 import { createFixtures, makeKey, settings } from './fixtures'
+import { createUsageDraft, supportsCustomUsage, usagePayload, usageTemplate, validateUsageDraft } from '../src/utils/customUsage'
+import type { CustomUsageConfig, CustomUsageResult, CustomUsageTemplate } from '../src/api/admin/customUsage'
 
 export class PreviewError extends Error {
   constructor(public status: number, message: string) { super(message) }
@@ -86,9 +108,69 @@ function buckets<T extends UsageLog>(rows: T[], key: (row: T) => string) {
 
 export function createMockApi(now = new Date()) {
   const data = createFixtures(now)
+  const customUsageConfigs = new Map<number, CustomUsageConfig>()
+  const customUsageCache = new Map<number, CustomUsageResult>()
+  const copy = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T
+  const customUsageAccount = (id: number) => {
+    const account = data.adminAccounts.find(item => item.id === id)
+    if (!account) throw new PreviewError(404, '本地演示账号不存在')
+    if (!supportsCustomUsage(account)) throw new PreviewError(422, '仅自定义地址的 API Key 账号支持用量查询')
+    return account
+  }
+  const defaultCustomUsage = (id: number) => ({ ...createUsageDraft(String(customUsageAccount(id).credentials?.base_url)), configured: false, has_api_key: false, has_access_token: false })
+  const readCustomUsageConfig = (id: number): CustomUsageConfig => {
+    customUsageAccount(id)
+    return copy(customUsageConfigs.get(id) ?? defaultCustomUsage(id))
+  }
+  function normalizePreviewUsage(id: number, body: Record<string, unknown>): CustomUsageConfig {
+    const previous = readCustomUsageConfig(id)
+    const config = copy(body) as unknown as CustomUsageConfig
+    try {
+      if (typeof config.enabled !== 'boolean' || !['custom', 'general', 'newapi', 'sub2api'].includes(config.template) || config.request?.method !== 'GET' || validateUsageDraft(config)) throw new Error('invalid')
+      for (const key of ['api_key', 'access_token'] as const) if (config[key] !== undefined && typeof config[key] !== 'string') throw new Error('invalid')
+      for (const key of ['clear_api_key', 'clear_access_token'] as const) if (config[key] !== undefined && typeof config[key] !== 'boolean') throw new Error('invalid')
+    } catch { throw new PreviewError(422, '无效的本地用量查询配置') }
+    const clean = usagePayload(config)
+    const hasAPIKey = config.clear_api_key ? false : !!config.api_key?.trim() || !!previous.has_api_key
+    const hasAccessToken = config.clear_access_token ? false : !!config.access_token?.trim() || !!previous.has_access_token
+    // Fixture mode retains presence flags only. No actual credential is persisted or transmitted.
+    delete clean.api_key; delete clean.access_token; delete clean.clear_api_key; delete clean.clear_access_token
+    const url = new URL(clean.request.url.replace('{{baseUrl}}', clean.base_url))
+    for (const key of [...url.searchParams.keys()]) {
+      if (!url.searchParams.get(key)?.includes('{{')) url.searchParams.set(key, '')
+    }
+    clean.request.url = url.toString().replace(clean.base_url, '{{baseUrl}}').replace(/%7B/gi, '{').replace(/%7D/gi, '}')
+    for (const [name, value] of Object.entries(clean.request.headers)) {
+      if (!['{{apiKey}}', 'Bearer {{apiKey}}', '{{accessToken}}', 'Bearer {{accessToken}}', '{{userId}}', 'application/json'].includes(value)) clean.request.headers[name] = ''
+    }
+    return { ...clean, configured: true, has_api_key: hasAPIKey, has_access_token: hasAccessToken }
+  }
+  function previewUsageResult(config: CustomUsageConfig, configured = true): CustomUsageResult {
+    const base = { enabled: config.enabled, configured, interval_minutes: config.interval_minutes, unit: '' }
+    if (!config.enabled || !configured) return base
+    const amounts: Record<CustomUsageTemplate, { remaining: number; used: number }> = {
+      general: { remaining: 128.64, used: 21.36 },
+      newapi: { remaining: 42.5, used: 7.5 },
+      sub2api: { remaining: 80.25, used: 19.75 },
+      custom: { remaining: 25, used: 5 },
+    }
+    return { ...base, ...amounts[config.template], unit: 'USD', plan_name: '本地演示 · ' + config.template, updated_at: now.toISOString() }
+  }
+  // Seed one example of each built-in template on the first account page.
+  data.adminAccounts.filter(supportsCustomUsage).reverse().slice(0, 3).forEach((account, index) => {
+    const template = (['general', 'newapi', 'sub2api'] as const)[index]
+    const config: CustomUsageConfig = { ...createUsageDraft(String(account.credentials?.base_url)), ...usageTemplate(template), enabled: true, configured: true, template, has_api_key: template !== 'newapi', has_access_token: template === 'newapi', ...(template === 'newapi' ? { user_id: '3064' } : {}) }
+    customUsageConfigs.set(account.id, config)
+    customUsageCache.set(account.id, previewUsageResult(config))
+  })
+  const adminSettings = () => ({
+    ...settings, ops_monitoring_enabled: false, ops_realtime_monitoring_enabled: false,
+    ops_query_mode_default: 'auto', custom_menu_items: [],
+    payment_recharge_center_enabled: data.checkoutInfo.recharge_center_enabled === true,
+    payment_enabled_types: data.paymentConfig.enabled_payment_types,
+  })
   let nextId = data.keys.length + 1
   let nextOrderId = Math.max(...data.paymentOrders.map(order => order.id)) + 1
-  let nextAllowlistId = Math.max(...data.cfAllowlist.items.map(item => item.id)) + 1
   let nextRedeemId = Math.max(...data.redeemHistory.map(item => item.id)) + 1
   const usedDemoCodes = new Set<string>()
   const timezoneOf = (query: URLSearchParams) => {
@@ -325,6 +407,9 @@ export function createMockApi(now = new Date()) {
         group_id: groupBy.includes('group') ? row.group_id : undefined,
         group_name: groupBy.includes('group') ? row.group_name : undefined,
         model: groupBy.includes('model') ? model : undefined,
+        // Keep both card shapes on screen: the first group shows the layout
+        // without degradation detection enabled.
+        quality_enabled: groupBy.includes('group') ? Boolean(row.group_id) && index > 0 : false,
       }]
     })
   }
@@ -351,6 +436,35 @@ export function createMockApi(now = new Date()) {
   return {
     user: data.user,
     handle(method: string, path: string, query: URLSearchParams, body: Record<string, unknown> = {}): unknown {
+      const usageConfigPath = path.match(/^\/api\/v1\/admin\/accounts\/(\d+)\/custom-usage-config$/)
+      if (usageConfigPath && method === 'GET') return readCustomUsageConfig(Number(usageConfigPath[1]))
+      if (usageConfigPath && method === 'PUT') {
+        const id = Number(usageConfigPath[1])
+        const config = normalizePreviewUsage(id, body)
+        customUsageConfigs.set(id, config)
+        customUsageCache.delete(id)
+        return copy(config)
+      }
+      const usageQueryPath = path.match(/^\/api\/v1\/admin\/accounts\/(\d+)\/custom-usage-query$/)
+      if (usageQueryPath && method === 'POST') {
+        if (body.force !== undefined && typeof body.force !== 'boolean') throw new PreviewError(422, '无效的 force 参数')
+        const id = Number(usageQueryPath[1])
+        const saved = readCustomUsageConfig(id)
+        if (body.config !== undefined && (!body.config || typeof body.config !== 'object' || Array.isArray(body.config))) throw new PreviewError(422, '无效的查询草稿')
+        const config = body.config === undefined ? saved : normalizePreviewUsage(id, body.config as Record<string, unknown>)
+        const result = previewUsageResult(config, !!config.configured)
+        // Draft tests never save configuration or replace the persisted cache.
+        if (body.config === undefined) customUsageCache.set(id, result)
+        return copy(result)
+      }
+      if (method === 'POST' && path === '/api/v1/admin/accounts/custom-usage-batch') {
+        if (!Array.isArray(body.account_ids) || body.account_ids.length === 0 || body.account_ids.length > 50 || body.account_ids.some(id => !Number.isSafeInteger(id) || Number(id) <= 0)) throw new PreviewError(422, '用量缓存批量查询最多 50 个账号')
+        return { items: Object.fromEntries([...new Set(body.account_ids as number[])].map(id => {
+          const config = readCustomUsageConfig(id)
+          // A cache miss is metadata only; this path never performs a query.
+          return [String(id), copy(customUsageCache.get(id) ?? { enabled: config.enabled, configured: !!config.configured, interval_minutes: config.interval_minutes, unit: '' })]
+        })) }
+      }
       if (method === 'GET') {
         if (path === '/setup/status') return { needs_setup: false, step: 'complete' }
         if (path === '/api/v1/settings/public') return settings
@@ -359,10 +473,7 @@ export function createMockApi(now = new Date()) {
           required: false, version: 'local-preview', document_path_zh: '', document_path_en: '',
           document_url_zh: '', document_url_en: '', ack_phrase_zh: '', ack_phrase_en: '',
         }
-        if (path === '/api/v1/admin/settings') return {
-          ...settings, ops_monitoring_enabled: false, ops_realtime_monitoring_enabled: false,
-          ops_query_mode_default: 'auto', custom_menu_items: [],
-        }
+        if (path === '/api/v1/admin/settings') return adminSettings()
         if (path === '/api/v1/admin/payment/config') return { enabled: true }
         if (path === '/api/v1/admin/settings/web-search-emulation') return { enabled: false, providers: [] }
         if (path === '/api/v1/admin/system/check-updates') return {
@@ -437,6 +548,46 @@ export function createMockApi(now = new Date()) {
         if (accountUsage) return data.usageByAccount[accountUsage[1]] ?? { updated_at: null, five_hour: null, seven_day: null, seven_day_sonnet: null }
         const accountToday = path.match(/^\/api\/v1\/admin\/accounts\/(\d+)\/today-stats$/)
         if (accountToday) return data.todayStatsByAccount[accountToday[1]] ?? { requests: 0, tokens: 0, cost: 0 }
+        const accountPlans = path.match(/^\/api\/v1\/admin\/accounts\/(\d+)\/scheduled-test-plans$/)
+        if (accountPlans) {
+          const accountId = Number(accountPlans[1])
+          return [
+            {
+              id: 1, account_id: accountId, model_id: 'gpt-6-astra',
+              prompt_text: '请生成可直接运行的单文件HTML，使用内联SVG绘制鹈鹕骑自行车的二维循环动画。',
+              cron_expression: '*/5 * * * *', enabled: true, max_results: 100,
+              auto_recover: true, quality_check_enabled: true,
+              last_run_at: data.now, next_run_at: data.now, created_at: data.now, updated_at: data.now,
+            },
+            {
+              id: 2, account_id: accountId, model_id: 'gpt-5.5',
+              prompt_text: '请生成可直接运行的单文件HTML，使用内联SVG绘制鹈鹕骑自行车的二维循环动画。',
+              cron_expression: '*/30 * * * *', enabled: false, max_results: 50,
+              auto_recover: false, quality_check_enabled: false,
+              last_run_at: null, next_run_at: null, created_at: data.now, updated_at: data.now,
+            },
+          ]
+        }
+        const planResults = path.match(/^\/api\/v1\/admin\/scheduled-test-plans\/(\d+)\/results$/)
+        if (planResults) {
+          return [
+            {
+              id: 11, plan_id: Number(planResults[1]), status: 'success', latency_ms: 16420,
+              response_text: '<!doctype html><html><body><svg viewBox="0 0 960 640"><circle cx="220" cy="470" r="70" fill="none" stroke="#333" stroke-width="6"/><circle cx="700" cy="470" r="70" fill="none" stroke="#333" stroke-width="6"/><animateTransform attributeName="transform" type="rotate" from="0 220 470" to="360 220 470" dur="2s" repeatCount="indefinite"/></svg></body></html>',
+              error_message: '', started_at: data.now, finished_at: data.now, created_at: data.now,
+            },
+            {
+              id: 12, plan_id: Number(planResults[1]), status: 'degraded', latency_ms: 15330,
+              response_text: '<!doctype html><html><body><svg viewBox="0 0 960 640"><rect x="120" y="120" width="300" height="200" fill="#ddd"/></svg></body></html>',
+              error_message: 'quality check failed: pelican anatomy is not recognizable', started_at: data.now, finished_at: data.now, created_at: data.now,
+            },
+            {
+              id: 13, plan_id: Number(planResults[1]), status: 'unknown', latency_ms: 890,
+              response_text: '',
+              error_message: 'quality check inconclusive: upstream review unavailable', started_at: data.now, finished_at: data.now, created_at: data.now,
+            },
+          ]
+        }
         if (path === '/api/v1/admin/groups') {
           const search = query.get('search')?.toLowerCase()
           const items = data.adminGroups.filter(group =>
@@ -549,6 +700,13 @@ export function createMockApi(now = new Date()) {
         if (path === '/api/v1/channel-monitor-v2/matrix') {
           return { coverage: data.monitorCoverage, group_by: query.get('group_by') || 'platform_group', items: selectedMonitorRows(query) }
         }
+        if (path === '/api/v1/channel-monitor-v2/quality-events') {
+          return { group_id: Number(query.get('group_id')), events: qualityDemoEvents }
+        }
+        const qualityArtwork = path.match(/^\/api\/v1\/channel-monitor-v2\/quality-events\/(\d+)\/artwork$/)
+        if (qualityArtwork) {
+          return { id: Number(qualityArtwork[1]), group_id: Number(query.get('group_id')), response_text: qualityDemoArtwork }
+        }
         if (path === '/api/v1/channel-monitor-v2/models') {
           const platforms = query.getAll('platform'), models = query.getAll('model')
           return { coverage: data.monitorCoverage, items: data.monitorModels.filter(item =>
@@ -564,6 +722,7 @@ export function createMockApi(now = new Date()) {
           { rank: 2, display_label: '匿名演示用户', is_self: false, can_drilldown: false, metrics: { ...data.monitorSnapshot.metrics, request_count: 680, success_requests: 648, error_requests: 32 } },
         ] }
         if (path === '/api/v1/channels/available') return data.availableChannels
+        if (path === '/api/v1/model-plaza') return data.modelPlaza
         if (path === '/api/v1/payment/config') return data.paymentConfig
         if (path === '/api/v1/payment/plans') return data.paymentPlans
         if (path === '/api/v1/payment/checkout-info') return data.checkoutInfo
@@ -599,7 +758,6 @@ export function createMockApi(now = new Date()) {
           return query.has('page') || query.has('page_size') ? page(data.redeemHistory, query) : data.redeemHistory
         }
         if (path === '/api/v1/user/aff') return data.affiliateDetail
-        if (path === '/api/v1/user/cf-allowlist') return { ...data.cfAllowlist, used_slots: data.cfAllowlist.items.length }
         if (path === '/api/v1/user/totp/status') return { enabled: false, enabled_at: null, feature_enabled: false }
         if (path === '/api/v1/user/totp/verification-method') return { method: 'password' }
         if (path === '/v1/models') return { object: 'list', data: data.models.map(id => ({ id, object: 'model', owned_by: 'local-demo' })) }
@@ -823,14 +981,23 @@ export function createMockApi(now = new Date()) {
         data.user.balance = Math.round((data.user.balance + amount) * 100) / 100
         return { transferred_quota: amount, balance: data.user.balance }
       }
-      if (method === 'POST' && path === '/api/v1/user/cf-allowlist') {
-        const ip = typeof body.ip === 'string' ? body.ip.trim() : ''
-        if (!isIP(ip)) throw new PreviewError(422, '请输入有效的 IPv4 或 IPv6 地址')
-        if (data.cfAllowlist.items.some(item => item.ip === ip)) throw new PreviewError(409, '该 IP 已在本地演示白名单中')
-        if (data.cfAllowlist.items.length >= data.cfAllowlist.max_slots) throw new PreviewError(409, '本地演示白名单名额已满')
-        const item = { id: nextAllowlistId++, ip, created_at: now.toISOString() }
-        data.cfAllowlist.items.push(item)
-        return item
+      if (method === 'PUT' && path === '/api/v1/admin/settings') {
+        if (!('payment_recharge_center_enabled' in body)) throw new PreviewError(405, '演示不支持修改其他系统设置')
+        if ('payment_recharge_center_enabled' in body) {
+          if (typeof body.payment_recharge_center_enabled !== 'boolean') throw new PreviewError(422, '页面开关必须是布尔值')
+          data.checkoutInfo.recharge_center_enabled = body.payment_recharge_center_enabled
+        }
+        return adminSettings()
+      }
+      const planWrite = path.match(/^\/api\/v1\/admin\/scheduled-test-plans(?:\/(\d+))?$/)
+      if (planWrite) {
+        if (method === 'POST') {
+          return { ...body, id: 99, last_run_at: null, next_run_at: data.now, created_at: data.now, updated_at: data.now }
+        }
+        if (method === 'PUT') {
+          return { ...body, id: Number(planWrite[1]), account_id: 1, last_run_at: null, next_run_at: data.now, created_at: data.now, updated_at: data.now }
+        }
+        if (method === 'DELETE') return { message: 'deleted' }
       }
       if (method === 'PUT' && path === '/api/v1/settings/public') {
         if (body.channel_monitor_mode !== 'v1' && body.channel_monitor_mode !== 'v2') throw new PreviewError(422, '本地预览仅支持 v1 或 v2 监控模式')
@@ -869,13 +1036,6 @@ export function createMockApi(now = new Date()) {
         }
         data.keys[index] = editKey(data.keys[index], body)
         return data.keys[index]
-      }
-      const allowlistDelete = path.match(/^\/api\/v1\/user\/cf-allowlist\/(\d+)$/)
-      if (method === 'DELETE' && allowlistDelete) {
-        const index = data.cfAllowlist.items.findIndex(item => item.id === Number(allowlistDelete[1]))
-        if (index < 0) throw new PreviewError(404, '本地演示 IP 不存在')
-        data.cfAllowlist.items.splice(index, 1)
-        return { message: '本地演示 IP 已移除' }
       }
       throw new PreviewError(501, '演示不支持此操作，不会写入或转发到真实后端')
     },

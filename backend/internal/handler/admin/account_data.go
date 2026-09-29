@@ -204,8 +204,8 @@ func (h *AccountHandler) ExportData(c *gin.Context) {
 			Notes:              acc.Notes,
 			Platform:           acc.Platform,
 			Type:               acc.Type,
-			Credentials:        acc.Credentials,
-			Extra:              service.RedactOpenAICodexTicketExtra(acc.Extra),
+			Credentials:        service.StripCustomUsageManaged(acc.Credentials, service.CustomUsageCredentialsKey),
+			Extra:              service.RedactOpenAICodexTicketExtra(service.StripCustomUsageManaged(acc.Extra, service.CustomUsageExtraKey)),
 			ProxyKey:           proxyKey,
 			Concurrency:        acc.Concurrency,
 			Priority:           acc.Priority,
@@ -693,7 +693,7 @@ func validateDataAccount(item DataAccount) error {
 		return errors.New("account credentials is required")
 	}
 	switch item.Type {
-	case service.AccountTypeOAuth, service.AccountTypeSetupToken, service.AccountTypeAPIKey, service.AccountTypeUpstream:
+	case service.AccountTypeOAuth, service.AccountTypeSetupToken, service.AccountTypeAPIKey, service.AccountTypeUpstream, service.AccountTypeCloudflare:
 	default:
 		return fmt.Errorf("account type is invalid: %s", item.Type)
 	}

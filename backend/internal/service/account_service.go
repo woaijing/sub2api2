@@ -156,20 +156,26 @@ type AdminAccountRepository interface {
 // AccountBulkUpdate describes the fields that can be updated in a bulk operation.
 // Nil pointers mean "do not change".
 type AccountBulkUpdate struct {
-	Name           *string
-	ProxyID        *int64
-	Concurrency    *int
-	Priority       *int
-	RateMultiplier *float64
-	LoadFactor     *int
-	Status         *string
-	Schedulable    *bool
-	Credentials    map[string]any
-	Extra          map[string]any
-	ProbeEnabled   *bool
+	Name                *string
+	ProxyID             *int64
+	Concurrency         *int
+	Priority            *int
+	RateMultiplier      *float64
+	LoadFactor          *int
+	Status              *string
+	Schedulable         *bool
+	Credentials         map[string]any
+	Extra               map[string]any
+	ProbeEnabled        *bool
+	CustomUsageExpected *AccountCustomUsageExpected
 	// EnsureCodexFingerprintSeed asks the repository to atomically preserve an
 	// existing valid Codex fingerprint seed or create one for eligible rows.
 	EnsureCodexFingerprintSeed bool
+}
+
+type AccountCustomUsageExpected struct {
+	Credentials map[string]any
+	Config      any
 }
 
 // CreateAccountRequest 创建账号请求
@@ -244,6 +250,9 @@ func (s *AccountService) Create(ctx context.Context, req CreateAccountRequest) (
 		Status:      StatusActive,
 		ExpiresAt:   req.ExpiresAt,
 	}
+	if err := validateCloudflareAccount(account); err != nil {
+		return nil, err
+	}
 	if req.AutoPauseOnExpired != nil {
 		account.AutoPauseOnExpired = *req.AutoPauseOnExpired
 	} else {
@@ -254,15 +263,15 @@ func (s *AccountService) Create(ctx context.Context, req CreateAccountRequest) (
 		return nil, fmt.Errorf("create account: %w", err)
 	}
 
-	// require_oauth_only 检查：apikey 类型账号不可加入限制分组
-	if account.Type == AccountTypeAPIKey && len(req.GroupIDs) > 0 {
+	// require_oauth_only 检查：静态密钥账号不可加入限制分组
+	if isStaticCredentialAccountType(account.Type) && len(req.GroupIDs) > 0 {
 		for _, gid := range req.GroupIDs {
 			g, err := s.groupRepo.GetByID(ctx, gid)
 			if err != nil {
 				return nil, err
 			}
 			if g.RequireOAuthOnly && (g.Platform == PlatformOpenAI || g.Platform == PlatformAntigravity || g.Platform == PlatformAnthropic || g.Platform == PlatformGemini || g.Platform == PlatformGrok) {
-				return nil, fmt.Errorf("分组 [%s] 仅允许 OAuth 账号，apikey 类型账号无法加入", g.Name)
+				return nil, oauthOnlyGroupError(g.Name, account.Type)
 			}
 		}
 	}
@@ -331,6 +340,9 @@ func (s *AccountService) Update(ctx context.Context, id int64, req UpdateAccount
 	if req.Credentials != nil {
 		account.Credentials = SanitizeStoredCredentials(account.Platform, *req.Credentials)
 	}
+	if err := validateCloudflareAccount(account); err != nil {
+		return nil, err
+	}
 
 	if req.Extra != nil {
 		extra := make(map[string]any, len(*req.Extra))
@@ -380,14 +392,14 @@ func (s *AccountService) Update(ctx context.Context, id int64, req UpdateAccount
 	}
 
 	// require_oauth_only 检查
-	if account.Type == AccountTypeAPIKey && req.GroupIDs != nil {
+	if isStaticCredentialAccountType(account.Type) && req.GroupIDs != nil {
 		for _, gid := range *req.GroupIDs {
 			g, err := s.groupRepo.GetByID(ctx, gid)
 			if err != nil {
 				return nil, err
 			}
 			if g.RequireOAuthOnly && (g.Platform == PlatformOpenAI || g.Platform == PlatformAntigravity || g.Platform == PlatformAnthropic || g.Platform == PlatformGemini || g.Platform == PlatformGrok) {
-				return nil, fmt.Errorf("分组 [%s] 仅允许 OAuth 账号，apikey 类型账号无法加入", g.Name)
+				return nil, oauthOnlyGroupError(g.Name, account.Type)
 			}
 		}
 	}

@@ -120,23 +120,24 @@ describe('preview server isolation', () => {
       '/api/v1/channel-monitor-v2/snapshot?range=90m',
       '/api/v1/channel-monitor-v2/matrix?range=90m&group_by=platform_group',
       '/api/v1/channels/available',
+      '/api/v1/model-plaza',
       '/api/v1/payment/checkout-info',
       '/api/v1/payment/orders/my?page=1&page_size=20',
       '/api/v1/subscriptions',
       '/api/v1/redeem/history',
       '/api/v1/user/profile',
       '/api/v1/user/aff',
-      '/api/v1/user/cf-allowlist',
     ]
     for (const endpoint of endpoints) {
       expect((await http(endpoint)).status, endpoint).toBe(200)
     }
     expect((await getData('/api/v1/channel-monitors')).items).toHaveLength(5)
-    expect(await getData('/api/v1/payment/checkout-info')).toMatchObject({ methods: { alipay: { currency: 'CNY' }, epusdt: { currency: 'USDT' } } })
+    expect(await getData('/api/v1/payment/checkout-info')).toMatchObject({ recharge_center_enabled: false, methods: { epusdt: { currency: 'CNY' } } })
 
-    const createResponse = await http('/api/v1/payment/orders', 'POST', { 'Content-Type': 'application/json' }, JSON.stringify({ amount: 20, payment_type: 'alipay', order_type: 'balance' }))
+    const createResponse = await http('/api/v1/payment/orders', 'POST', { 'Content-Type': 'application/json' }, JSON.stringify({ amount: 20, payment_type: 'epusdt', order_type: 'balance' }))
     expect(createResponse.status).toBe(200)
     const created = JSON.parse(createResponse.text).data
+    expect(created.currency).toBe('CNY')
     expect(created.qr_code).toMatch(/^LOCAL-DEMO-PAYMENT:/)
     expect(created.pay_url).toBeUndefined()
     expect(created.client_secret).toBeUndefined()

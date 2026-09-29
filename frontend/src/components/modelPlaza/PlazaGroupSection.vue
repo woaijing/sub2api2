@@ -31,6 +31,14 @@
         >
           {{ t('modelPlaza.badges.subscription') }}
         </span>
+        <span
+          v-if="group.quality_status"
+          class="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium"
+          :class="group.quality_status === 'suspect' ? 'bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300' : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300'"
+        >
+          <Icon name="checkCircle" size="xs" class="h-3 w-3" />
+          {{ t(`modelPlaza.badges.quality.${group.quality_status}`) }}
+        </span>
       </div>
       <p v-if="group.description" class="mt-2 text-sm text-gray-500 dark:text-dark-400">
         {{ group.description }}

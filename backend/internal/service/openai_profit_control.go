@@ -302,6 +302,7 @@ func attachSelectionProfitGate(ctx context.Context, sel *AccountSelectionResult)
 	if sel == nil {
 		return nil
 	}
+	sel.profitGateResolved = true
 	if gate, ok := ctx.Value(openAIProfitControlGateCtxKey{}).(*openAIProfitControlGate); ok && gate != nil {
 		sel.profitGate = gate
 	}
@@ -312,8 +313,17 @@ func attachSelectionProfitGate(ctx context.Context, sel *AccountSelectionResult)
 // handler 在拿到选号结果后必须用返回的 ctx 做抢槽后终检
 // （ProfitControlVetoLatest / GatewayProfitControlVetoLatest）与准入后粘性
 // 绑定，否则这两步会因为看不到调度栈内安装的门而退化为空操作。
+// 智能路由切到未开门/不支持利润门的分组（DeepSeek/Kimi 等）时，选号结果
+// 的门为 nil：必须清掉入口分组残留门，不能把 WithOpenAIRequestPricingContext
+// 装上的主组阈值带去否决备用组账号。
 func ContextWithSelectionProfitGate(ctx context.Context, sel *AccountSelectionResult) context.Context {
-	if sel == nil || sel.profitGate == nil {
+	if sel == nil || !sel.profitGateResolved {
+		return ctx
+	}
+	if sel.profitGate == nil {
+		if existing, ok := ctx.Value(openAIProfitControlGateCtxKey{}).(*openAIProfitControlGate); ok && existing != nil {
+			return context.WithValue(ctx, openAIProfitControlGateCtxKey{}, (*openAIProfitControlGate)(nil))
+		}
 		return ctx
 	}
 	if existing, ok := ctx.Value(openAIProfitControlGateCtxKey{}).(*openAIProfitControlGate); ok && existing == sel.profitGate {
@@ -378,7 +388,8 @@ func (s *OpenAIGatewayService) bindOpenAIStickySessionDuringSelection(ctx contex
 // behavior at the handler bind points. With a gate it never overwrites a
 // different binding that already exists, so a temporarily ineligible account
 // remains sticky and becomes eligible again automatically after its rate
-// recovers.
+// recovers. Auth/runtime-blocked sticky accounts are the exception: failover
+// must be allowed to pin the session to the replacement account.
 func (s *OpenAIGatewayService) BindStickySessionAfterProfitAdmission(ctx context.Context, groupID *int64, sessionHash string, accountID int64) error {
 	if sessionHash == "" || accountID <= 0 {
 		return nil
@@ -395,9 +406,28 @@ func (s *OpenAIGatewayService) BindStickySessionAfterProfitAdmission(ctx context
 		return nil
 	}
 	if existingAccountID > 0 && existingAccountID != accountID {
-		return nil
+		if !s.stickySessionShouldYieldToFailover(ctx, existingAccountID) {
+			return nil
+		}
 	}
 	return s.BindStickySession(ctx, groupID, sessionHash, accountID)
+}
+
+func (s *OpenAIGatewayService) stickySessionShouldYieldToFailover(ctx context.Context, accountID int64) bool {
+	if s == nil || accountID <= 0 {
+		return false
+	}
+	if s.isOpenAIAccountRuntimeBlocked(&Account{ID: accountID, Platform: PlatformOpenAI}) {
+		return true
+	}
+	if s.accountRepo == nil && s.schedulerSnapshot == nil {
+		return false
+	}
+	account, err := s.getSchedulableAccount(ctx, accountID)
+	if err != nil {
+		return true
+	}
+	return account == nil || shouldClearStickySession(account, "")
 }
 
 // ---- 可观测性：按分组累计计数 + 采样日志（无逐请求输出） ----

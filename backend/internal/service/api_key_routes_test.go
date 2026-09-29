@@ -129,6 +129,45 @@ func TestHydrateAPIKeyGroupRequiresFullGroup(t *testing.T) {
 	require.Equal(t, 1.0, key.Group.RateMultiplier)
 }
 
+func TestAPIKeyRouteIteratorUsesEffectiveFallbackGroup(t *testing.T) {
+	primaryID := int64(1)
+	fallbackID := int64(2)
+	primary := &Group{ID: primaryID, Platform: PlatformOpenAI, Status: StatusActive, Hydrated: true}
+	fallback := &Group{ID: fallbackID, Platform: PlatformOpenAI, Status: StatusActive, Hydrated: true}
+	key := &APIKey{User: &User{ID: 7, Status: StatusActive, AllowedGroups: []int64{primaryID, fallbackID}}, GroupID: &primaryID, Group: primary, RouteGroupIDs: []int64{primaryID}}
+	routes := newAPIKeyRouteIterator(context.Background(), key, []int64{primaryID}, "gpt-5",
+		func(context.Context, *APIKey, int64) (*APIKey, error) { return key, nil },
+		func(_ context.Context, routed *APIKey) (*APIKey, error) {
+			return cloneAPIKeyWithGroupID(routed, fallback), nil
+		},
+		func(context.Context, *int64) groupModelsCatalog {
+			return groupModelsCatalog{byPlatform: map[string][]string{PlatformOpenAI: {"gpt-5"}}, platforms: map[string]struct{}{PlatformOpenAI: {}}}
+		},
+		func(context.Context, *int64, string) (ChannelMappingResult, bool) {
+			return ChannelMappingResult{}, false
+		}, nil)
+	candidate, ok := routes.next()
+	require.True(t, ok)
+	require.Equal(t, fallbackID, *candidate.key.GroupID)
+	require.Equal(t, fallbackID, candidate.key.Group.ID)
+}
+
+func TestGatewayRouteCandidateUsesOfficialClaudeFallbackGroup(t *testing.T) {
+	primaryID := int64(11)
+	fallbackID := int64(12)
+	primary := &Group{ID: primaryID, Platform: PlatformAnthropic, Status: StatusActive, Hydrated: true, ClaudeCodeOnly: true, FallbackGroupID: &fallbackID}
+	fallback := &Group{ID: fallbackID, Platform: PlatformAnthropic, Status: StatusActive, Hydrated: true}
+	snapshot, _ := newSmartRouteCoreSnapshot([]*Group{primary, fallback})
+	svc := &GatewayService{schedulerSnapshot: snapshot}
+	key := &APIKey{User: &User{ID: 7, Status: StatusActive, AllowedGroups: []int64{primaryID, fallbackID}}, GroupID: &primaryID, Group: primary, RouteGroupIDs: []int64{primaryID}}
+
+	ctx := withSchedulerSnapshotOnly(SetClaudeCodeClient(context.Background(), false))
+	routed, err := svc.resolveAPIKeyRouteCandidate(ctx, key)
+	require.NoError(t, err)
+	require.Equal(t, fallbackID, *routed.GroupID)
+	require.Equal(t, fallback, routed.Group)
+}
+
 func TestResolveAPIKeyRouteGroupRestoresTaskGroup(t *testing.T) {
 	primaryID := int64(1)
 	key := &APIKey{
@@ -338,4 +377,72 @@ func TestUpstreamPlatformForModel_OpenAIGroupGeminiMapping(t *testing.T) {
 	platform, ok := svc.UpstreamPlatformForModel(context.Background(), key, "gemini-3.8-flash")
 	require.True(t, ok)
 	require.Equal(t, PlatformOpenAI, platform)
+}
+
+type groupByIDLiteStub struct {
+	GroupRepository
+	groups map[int64]*Group
+}
+
+func (s *groupByIDLiteStub) GetByIDLite(_ context.Context, id int64) (*Group, error) {
+	if s != nil && s.groups != nil {
+		if group := s.groups[id]; group != nil {
+			return group, nil
+		}
+	}
+	return nil, ErrGroupNotFound
+}
+
+func TestUpstreamPlatformForModel_OpenAIPrimaryPassthroughsUnknownGrokModel(t *testing.T) {
+	openaiID := int64(43)
+	grokID := int64(25)
+	svc := &GatewayService{
+		accountRepo: &modelsListAccountRepoStub{
+			byGroup: map[int64][]Account{
+				openaiID: {{
+					ID:       10,
+					Platform: PlatformOpenAI,
+					Credentials: map[string]any{
+						"model_mapping": map[string]any{"gpt-5.4": "gpt-5.4"},
+					},
+				}},
+				grokID: {{
+					ID:       29131,
+					Platform: PlatformGrok,
+					Credentials: map[string]any{
+						"model_mapping": map[string]any{"grok-4.6": "grok-4.6"},
+					},
+				}},
+			},
+		},
+		groupRepo: &groupByIDLiteStub{groups: map[int64]*Group{
+			openaiID: {ID: openaiID, Platform: PlatformOpenAI, Status: StatusActive, Hydrated: true},
+			grokID:   {ID: grokID, Platform: PlatformGrok, Status: StatusActive, Hydrated: true},
+		}},
+	}
+	key := &APIKey{
+		GroupID:       &openaiID,
+		Group:         &Group{ID: openaiID, Platform: PlatformOpenAI},
+		RouteGroupIDs: []int64{openaiID, grokID},
+	}
+
+	platform, ok := svc.UpstreamPlatformForModel(context.Background(), key, "grok-4.7")
+	require.True(t, ok)
+	require.Equal(t, PlatformGrok, platform)
+
+	require.True(t, svc.shouldTryKeyRouteGroup(context.Background(), grokID, PlatformOpenAI, "grok-4.7", false))
+	require.False(t, svc.shouldTryKeyRouteGroup(context.Background(), openaiID, PlatformOpenAI, "grok-4.7", false))
+	require.False(t, svc.shouldTryKeyRouteGroup(context.Background(), grokID, PlatformOpenAI, "grok-4.7", true), "later catalog hit still wins over an unlisted grok group")
+}
+
+func TestGroupPassthroughsRequestedModel(t *testing.T) {
+	grokGroup := &Group{ID: 25, Platform: PlatformGrok}
+	openaiGroup := &Group{ID: 43, Platform: PlatformOpenAI}
+	allowlisted := &Group{ID: 25, Platform: PlatformGrok, ModelAllowlist: GroupModelsListConfig{Enabled: true, Models: []string{"grok-4.6"}}}
+
+	require.True(t, groupPassthroughsRequestedModel(grokGroup, "grok-4.7", nil))
+	require.False(t, groupPassthroughsRequestedModel(openaiGroup, "grok-4.7", map[string]struct{}{PlatformOpenAI: {}}))
+	require.True(t, groupPassthroughsRequestedModel(openaiGroup, "gpt-5.9", map[string]struct{}{PlatformOpenAI: {}}))
+	require.False(t, groupPassthroughsRequestedModel(allowlisted, "grok-4.7", map[string]struct{}{PlatformGrok: {}}))
+	require.False(t, groupPassthroughsRequestedModel(openaiGroup, "grok-imagine-video-1.5", map[string]struct{}{PlatformOpenAI: {}}))
 }

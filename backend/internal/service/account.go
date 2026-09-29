@@ -899,6 +899,19 @@ func normalizeRequestedModelForLookup(platform, requestedModel string) string {
 	return trimmed
 }
 
+func grokAccountPassthroughsFamilyModel(requestedModel string) bool {
+	platform, ok := DetectModelPlatform(requestedModel)
+	return ok && platform == PlatformGrok
+}
+
+func grokAccountHasExplicitModelMapping(a *Account) bool {
+	if a == nil || a.Credentials == nil {
+		return false
+	}
+	raw, _ := a.Credentials["model_mapping"].(map[string]any)
+	return len(raw) > 0
+}
+
 func mappingSupportsRequestedModel(mapping map[string]string, requestedModel string) bool {
 	if requestedModel == "" {
 		return false
@@ -942,6 +955,13 @@ func (a *Account) IsModelSupported(requestedModel string) bool {
 	// credentials 里常残留旧的非空 model_mapping，若不在此放行，透传账号会被
 	// model_mapping 白名单错误排除出候选集，导致 no available accounts / 404（issue #4936）。
 	if a.IsOpenAIPassthroughEnabled() {
+		return true
+	}
+	// Empty Grok mapping is rewritten to DefaultModelMapping, which would
+	// otherwise become a closed allowlist. Passthrough unlisted grok-* only
+	// when the operator did not set an explicit mapping; a listed mapping
+	// stays a rewrite table so grok-4.6-only accounts are not asked for 4.7.
+	if a.Platform == PlatformGrok && grokAccountPassthroughsFamilyModel(requestedModel) && !grokAccountHasExplicitModelMapping(a) {
 		return true
 	}
 	mapping := a.GetModelMapping()
@@ -1447,6 +1467,13 @@ func (a *Account) GetOpenAIBaseURL() string {
 			}
 		}
 	}
+	if a.IsCloudflareOpenAI() {
+		accountID, err := a.CloudflareAccountID()
+		if err != nil {
+			return ""
+		}
+		return cloudflareOpenAIBaseURL(accountID)
+	}
 	if a.Type == AccountTypeAPIKey || a.Type == AccountTypeUpstream {
 		if baseURL := strings.TrimSpace(a.GetCredential("base_url")); baseURL != "" {
 			return baseURL
@@ -1843,6 +1870,9 @@ func (a *Account) GetOpenAIApiKey() string {
 func (a *Account) GetOpenAIProtocolAPIKey() string {
 	if a == nil {
 		return ""
+	}
+	if a.IsCloudflareOpenAI() {
+		return a.GetCredential("api_key")
 	}
 	if a.IsCNProvider() || a.IsGeminiOpenAIProtocol() {
 		if a.Type != AccountTypeAPIKey {

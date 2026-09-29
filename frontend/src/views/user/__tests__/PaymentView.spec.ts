@@ -1,10 +1,11 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, shallowMount } from '@vue/test-utils'
 import PaymentView from '../PaymentView.vue'
 import { PAYMENT_RECOVERY_STORAGE_KEY } from '@/components/payment/paymentFlow'
 import { formatPaymentAmount } from '@/components/payment/currency'
 import AmountInput from '@/components/payment/AmountInput.vue'
 import SubscriptionPlanCard from '@/components/payment/SubscriptionPlanCard.vue'
+import ConsoleTabs from '@/components/common/ConsoleTabs.vue'
 import en from '@/i18n/locales/en'
 import zh from '@/i18n/locales/zh'
 import type { CheckoutInfoResponse, MethodLimit, SubscriptionPlan } from '@/types/payment'
@@ -73,13 +74,17 @@ vi.mock('@/stores/subscriptions', () => ({
   }),
 }))
 
-vi.mock('@/stores', () => ({
-  useAppStore: () => ({
-    showError,
-    showInfo,
-    showWarning,
-  }),
-}))
+vi.mock('@/stores', async () => {
+  const { reactive } = await import('vue')
+  return {
+    useAppStore: () => reactive({
+      showError,
+      showInfo,
+      showWarning,
+      cachedPublicSettings: { custom_menu_items: [{ id: '322273f5aaa4d036', url: 'https://payment.example.test/recharge' }] },
+    }),
+  }
+})
 
 vi.mock('@/api/payment', () => ({
   paymentAPI: {
@@ -341,6 +346,243 @@ describe('PaymentView help text', () => {
     const wrapper = await mountHelp('', 'https://example.com/help.png')
     expect(wrapper.find('.markdown-body').exists()).toBe(false)
     expect(wrapper.get('img').attributes('src')).toBe('https://example.com/help.png')
+  })
+})
+
+describe('PaymentView recharge center visibility', () => {
+  const wrappers: ReturnType<typeof shallowMount>[] = []
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    routeState.path = '/purchase'
+    routeState.query = {}
+    window.localStorage.clear()
+    createOrder.mockReset()
+  })
+
+  afterEach(() => {
+    wrappers.splice(0).forEach(wrapper => wrapper.unmount())
+    vi.useRealTimers()
+  })
+
+  async function mountEntry(overrides: Partial<CheckoutInfoResponse> = {}) {
+    const method = checkoutInfoFixture().data.methods.wxpay
+    getCheckoutInfo.mockReset().mockResolvedValue(checkoutInfoFixture({
+      methods: { epusdt: { ...method, currency: 'CNY' } }, ...overrides,
+    }))
+    const wrapper = shallowMount(PaymentView, { global: { stubs: {
+      AppLayout: { template: '<div><slot /></div>' }, Teleport: true, Transition: false,
+    } } })
+    wrappers.push(wrapper)
+    await flushPromises()
+    return wrapper
+  }
+
+  async function mountCenter() {
+    const wrapper = await mountEntry({ recharge_center_enabled: true })
+    wrapper.getComponent(ConsoleTabs).vm.$emit('update:modelValue', 'rechargeCenter')
+    await flushPromises()
+    return wrapper
+  }
+
+  function expectSafeOpenLinks(wrapper: ReturnType<typeof shallowMount>) {
+    const frameUrl = wrapper.get('iframe').attributes('src')
+    const links = wrapper.findAll('a[target="_blank"]').filter(link => link.attributes('href') === frameUrl)
+    expect(links.length).toBeGreaterThan(0)
+    for (const link of links) {
+      expect(link.attributes('rel')).toBe('noopener noreferrer')
+      expect(new URL(link.attributes('href')!).protocol).toMatch(/^https?:$/)
+    }
+  }
+
+  it.each([undefined, false])('hides the external entry and iframe when the setting is %s', async flag => {
+    const wrapper = await mountEntry({ recharge_center_enabled: flag })
+    expect(wrapper.findComponent(ConsoleTabs).exists()).toBe(false)
+    expect(wrapper.find('iframe').exists()).toBe(false)
+    const vm = wrapper.vm as unknown as { activeTab: string }
+    vm.activeTab = 'rechargeCenter'
+    await flushPromises()
+    expect(wrapper.find('iframe').exists()).toBe(false)
+    expect(createOrder).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('shows the configured entry only after enabling it and selecting its tab', async () => {
+    const wrapper = await mountEntry({ recharge_center_enabled: true })
+    expect(wrapper.find('iframe').exists()).toBe(false)
+    wrapper.getComponent(ConsoleTabs).vm.$emit('update:modelValue', 'rechargeCenter')
+    await flushPromises()
+    expect(wrapper.get('iframe').attributes('src')).toContain('https://payment.example.test/recharge')
+    expect(zh.payment.tabRechargeCenter).toBe('支付宝 / 微信')
+    expect(zh.payment.rechargeCenterTitle).toBe('支付宝 / 微信')
+    expect(createOrder).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('offers a new window after timeout without interrupting a slow checkout', async () => {
+    const wrapper = await mountCenter()
+    const frame = wrapper.get('iframe').element
+    await vi.advanceTimersByTimeAsync(4999)
+    expect(wrapper.find('.recharge-center-fallback').exists()).toBe(false)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(wrapper.get('iframe').element).toBe(frame)
+    expect(wrapper.get('.recharge-center-fallback').text()).toContain('payment.rechargeCenterNetworkBody')
+    expect(wrapper.get('.recharge-center-fallback').attributes('role')).toBe('status')
+    expectSafeOpenLinks(wrapper)
+    expect(createOrder).not.toHaveBeenCalled()
+    expect(vi.getTimerCount()).toBe(0)
+    await wrapper.get('iframe').trigger('load')
+    expect(wrapper.find('.recharge-center-fallback').exists()).toBe(false)
+    expect(wrapper.get('iframe').element).toBe(frame)
+    expect(wrapper.text()).toContain('payment.rechargeCenterNetworkHint')
+  })
+
+  it('offers a new window immediately on error and allows the same frame to recover', async () => {
+    const wrapper = await mountCenter()
+    const frame = wrapper.get('iframe').element
+    await wrapper.get('iframe').trigger('error')
+    expect(wrapper.get('.recharge-center-fallback').text()).toContain('payment.rechargeCenterNetworkTitle')
+    expect(wrapper.get('iframe').element).toBe(frame)
+    expectSafeOpenLinks(wrapper)
+    expect(vi.getTimerCount()).toBe(0)
+    await wrapper.get('iframe').trigger('load')
+    expect(wrapper.find('.recharge-center-fallback').exists()).toBe(false)
+    expect(wrapper.get('iframe').element).toBe(frame)
+  })
+
+  it('keeps fallback instructions after an opaque cross-origin load event', async () => {
+    const wrapper = await mountCenter()
+    const frame = wrapper.get('iframe')
+    const readDocument = vi.fn(() => { throw new DOMException('Blocked cross-origin access', 'SecurityError') })
+    Object.defineProperty(frame.element, 'contentDocument', { configurable: true, get: readDocument })
+    await frame.trigger('load')
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(wrapper.get('iframe').element).toBe(frame.element)
+    expect(wrapper.find('.recharge-center-fallback').exists()).toBe(false)
+    expect(wrapper.text()).toContain('payment.rechargeCenterNetworkHint')
+    expectSafeOpenLinks(wrapper)
+    expect(readDocument).not.toHaveBeenCalled()
+    expect(createOrder).not.toHaveBeenCalled()
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('clears the old timer on tab switch and grants the next frame a full timeout', async () => {
+    const wrapper = await mountCenter()
+    await vi.advanceTimersByTimeAsync(4000)
+    wrapper.getComponent(ConsoleTabs).vm.$emit('update:modelValue', 'recharge')
+    await flushPromises()
+    expect(vi.getTimerCount()).toBe(0)
+    wrapper.getComponent(ConsoleTabs).vm.$emit('update:modelValue', 'rechargeCenter')
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(wrapper.find('.recharge-center-fallback').exists()).toBe(false)
+    await vi.advanceTimersByTimeAsync(4000)
+    expect(wrapper.find('.recharge-center-fallback').exists()).toBe(true)
+  })
+
+  it('clears the timer during payment and starts fresh when returning from an order', async () => {
+    const wrapper = await mountCenter()
+    const vm = wrapper.vm as unknown as { paymentPhase: string; paymentState: { orderId: number } }
+    await vi.advanceTimersByTimeAsync(4000)
+    vm.paymentState.orderId = 123
+    vm.paymentPhase = 'paying'
+    await flushPromises()
+    expect(wrapper.find('iframe').exists()).toBe(false)
+    expect(vi.getTimerCount()).toBe(0)
+    vm.paymentState.orderId = 124
+    await flushPromises()
+    expect(vi.getTimerCount()).toBe(0)
+    vm.paymentPhase = 'select'
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(wrapper.find('.recharge-center-fallback').exists()).toBe(false)
+    await wrapper.get('iframe').trigger('load')
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(wrapper.find('.recharge-center-fallback').exists()).toBe(false)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('clears the timer on unmount', async () => {
+    const wrapper = await mountCenter()
+    expect(vi.getTimerCount()).toBe(1)
+    wrapper.unmount()
+    expect(vi.getTimerCount()).toBe(0)
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(createOrder).not.toHaveBeenCalled()
+  })
+
+  it('starts timing when the default recharge center frame is mounted', async () => {
+    const wrapper = await mountEntry({ recharge_center_enabled: true, balance_disabled: true })
+    expect(wrapper.find('iframe').exists()).toBe(true)
+    expect(vi.getTimerCount()).toBe(1)
+    await wrapper.get('iframe').trigger('load')
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it.each(['javascript:alert(1)', 'data:text/html,test', 'file:///tmp/test', 'md:hello', 'https://', ''])('rejects unsafe or invalid recharge center URL %s', async url => {
+    const wrapper = await mountCenter()
+    const vm = wrapper.vm as unknown as { appStore: { cachedPublicSettings: { custom_menu_items: { url: string }[] } } }
+    vm.appStore.cachedPublicSettings.custom_menu_items[0].url = url
+    await flushPromises()
+    expect(wrapper.find('iframe').exists()).toBe(false)
+    expect(wrapper.text()).toContain('payment.rechargeCenterUnavailable')
+    expect(wrapper.find('a[target="_blank"]').exists()).toBe(false)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it.each(['https://payment.example.test/checkout', 'http://payment.example.test/checkout', '/checkout', '//payment.example.test/checkout'])('preserves supported checkout URL %s', async url => {
+    const wrapper = await mountCenter()
+    const vm = wrapper.vm as unknown as { appStore: { cachedPublicSettings: { custom_menu_items: { url: string }[] } } }
+    vm.appStore.cachedPublicSettings.custom_menu_items[0].url = url
+    await flushPromises()
+    const frameUrl = wrapper.get('iframe').attributes('src')
+    expect(frameUrl).toContain(url)
+    const openLink = wrapper.get('.recharge-center-toolbar a')
+    expect(openLink.attributes('href')).toBe(frameUrl)
+    expect(openLink.attributes('target')).toBe('_blank')
+    expect(openLink.attributes('rel')).toBe('noopener noreferrer')
+    await wrapper.get('iframe').trigger('load')
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('replaces the frame on URL change and ignores old frame events', async () => {
+    const wrapper = await mountCenter()
+    const previousFrame = wrapper.get('iframe')
+    const vm = wrapper.vm as unknown as { appStore: { cachedPublicSettings: { custom_menu_items: { url: string }[] } } }
+    await vi.advanceTimersByTimeAsync(4000)
+    vm.appStore.cachedPublicSettings.custom_menu_items[0].url = 'https://payment.example.test/next'
+    await flushPromises()
+    expect(wrapper.get('iframe').element).not.toBe(previousFrame.element)
+    expect(wrapper.get('iframe').attributes('src')).toContain('https://payment.example.test/next')
+    await previousFrame.trigger('load')
+    await previousFrame.trigger('error')
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(wrapper.find('.recharge-center-fallback').exists()).toBe(false)
+    await vi.advanceTimersByTimeAsync(4000)
+    expect(wrapper.find('.recharge-center-fallback').exists()).toBe(true)
+    expectSafeOpenLinks(wrapper)
+  })
+
+  it('keeps the two USDT registration links visible without opening checkout', async () => {
+    const wrapper = await mountEntry()
+    const links = wrapper.findAll('.console-exchange-link')
+    expect(links.map(link => link.attributes('href'))).toEqual([
+      'https://www.mitnpkwxvfr.net/join/4274122',
+      'https://www.bsmkweb.cc/register?ref=TXUH99P0',
+    ])
+    for (const link of links) {
+      expect(link.attributes('target')).toBe('_blank')
+      expect(link.attributes('rel')).toContain('noopener')
+    }
+    expect(createOrder).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('shows unavailable when both top-up and the external entry are disabled', async () => {
+    const wrapper = await mountEntry({ balance_disabled: true, recharge_center_enabled: false })
+    expect(wrapper.text()).toContain('payment.notAvailable')
+    expect(wrapper.find('iframe').exists()).toBe(false)
+    wrapper.unmount()
   })
 })
 

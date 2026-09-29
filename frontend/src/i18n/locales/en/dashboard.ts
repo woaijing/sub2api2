@@ -555,6 +555,20 @@ export default {
     nextUpdateIn: 'NEXT UPDATE IN {n}s',
     past: 'PAST',
     now: 'NOW',
+    qualityLegend: 'DEGRADATION · {n} PTS',
+    qualityDegradedCount: '{n} degraded',
+    qualityTooltip: '{time} · {checked} checked · {degraded} degraded',
+    qualityTooltipNoData: '{time} · no data',
+    qualityNoData: 'No degradation data yet',
+    qualityHistoryTitle: 'PAST CHECKS · {n}',
+    qualityHistoryDegradedCount: '{n} degraded',
+    qualityHistoryPass: 'Pass',
+    qualityHistoryDegraded: 'Degraded',
+    qualityHistoryEmpty: 'No completed checks yet',
+    qualityHistoryLoading: 'Loading past checks…',
+    qualityHistoryFailed: 'Failed to load past checks',
+    qualityArtworkLoading: 'Loading animation…',
+    qualityArtworkFailed: 'Failed to load animation',
     maintenancePaused: 'Maintenance · timeline paused',
     extraModelsCount: '+ {n} models',
     pollEvery: '{n}s polling',
@@ -688,7 +702,11 @@ export default {
     },
     badges: {
       exclusive: 'Exclusive',
-      subscription: 'Subscription'
+      subscription: 'Subscription',
+      quality: {
+        healthy: 'Healthy',
+        suspect: 'Suspect degradation'
+      }
     },
     detail: {
       noModels: 'No models configured for this group',

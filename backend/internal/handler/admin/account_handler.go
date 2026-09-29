@@ -123,7 +123,7 @@ type CreateAccountRequest struct {
 	Name                    string         `json:"name" binding:"required"`
 	Notes                   *string        `json:"notes"`
 	Platform                string         `json:"platform" binding:"required"`
-	Type                    string         `json:"type" binding:"required,oneof=oauth setup-token apikey upstream bedrock service_account"`
+	Type                    string         `json:"type" binding:"required,oneof=oauth setup-token apikey upstream bedrock service_account cloudflare"`
 	Credentials             map[string]any `json:"credentials" binding:"required"`
 	Extra                   map[string]any `json:"extra"`
 	ProxyID                 *int64         `json:"proxy_id"`
@@ -143,7 +143,7 @@ type CreateAccountRequest struct {
 type UpdateAccountRequest struct {
 	Name                    string         `json:"name"`
 	Notes                   *string        `json:"notes"`
-	Type                    string         `json:"type" binding:"omitempty,oneof=oauth setup-token apikey upstream bedrock service_account"`
+	Type                    string         `json:"type" binding:"omitempty,oneof=oauth setup-token apikey upstream bedrock service_account cloudflare"`
 	Credentials             map[string]any `json:"credentials"`
 	Extra                   map[string]any `json:"extra"`
 	ProxyID                 *int64         `json:"proxy_id"`
@@ -3042,6 +3042,7 @@ func (h *AccountHandler) SyncUpstreamModelsPreview(c *gin.Context) {
 		Platform     string            `json:"platform" binding:"required"`
 		Type         string            `json:"type" binding:"required"`
 		BaseURL      string            `json:"base_url"`
+		AccountID    string            `json:"account_id"`
 		APIKey       string            `json:"api_key" binding:"required"`
 		APIProtocol  string            `json:"api_protocol"`
 		APIBaseURLs  map[string]string `json:"api_base_urls"`
@@ -3064,6 +3065,9 @@ func (h *AccountHandler) SyncUpstreamModelsPreview(c *gin.Context) {
 		"api_key":       req.APIKey,
 		"base_url":      req.BaseURL,
 		"model_mapping": modelMapping,
+	}
+	if accountID := strings.TrimSpace(req.AccountID); accountID != "" {
+		credentials["account_id"] = accountID
 	}
 	if protocol := strings.TrimSpace(req.APIProtocol); protocol != "" {
 		credentials["api_protocol"] = protocol

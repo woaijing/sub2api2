@@ -47,6 +47,7 @@ func ProvideAdminHandlers(
 	affiliateHandler *admin.AffiliateHandler,
 	complianceHandler *admin.ComplianceHandler,
 	auditLogHandler *admin.AuditLogHandler,
+	groupQualityCheckHandler *admin.GroupQualityCheckHandler,
 	upstreamBillingProbe *service.UpstreamBillingProbeService,
 	ollamaCloudUsage *service.OllamaCloudUsageService,
 	settingService *service.SettingService,
@@ -91,6 +92,7 @@ func ProvideAdminHandlers(
 		Affiliate:              affiliateHandler,
 		Compliance:             complianceHandler,
 		AuditLog:               auditLogHandler,
+		GroupQualityCheck:      groupQualityCheckHandler,
 	}
 }
 
@@ -187,6 +189,7 @@ func ProvideHandlers(
 	redeemHandler *RedeemHandler,
 	subscriptionHandler *SubscriptionHandler,
 	announcementHandler *AnnouncementHandler,
+	ticketHandler *TicketHandler,
 	channelMonitorUserHandler *ChannelMonitorUserHandler,
 	channelMonitorV2Handler *ChannelMonitorV2Handler,
 	adminHandlers *AdminHandlers,
@@ -213,6 +216,7 @@ func ProvideHandlers(
 		Redeem:           redeemHandler,
 		Subscription:     subscriptionHandler,
 		Announcement:     announcementHandler,
+		Ticket:           ticketHandler,
 		ChannelMonitor:   channelMonitorUserHandler,
 		ChannelMonitorV2: channelMonitorV2Handler,
 		Admin:            adminHandlers,
@@ -240,6 +244,7 @@ var ProviderSet = wire.NewSet(
 	NewRedeemHandler,
 	NewSubscriptionHandler,
 	NewAnnouncementHandler,
+	NewTicketHandler,
 	NewChannelMonitorUserHandler,
 	NewChannelMonitorV2Handler,
 	ProvideGatewayHandler,
@@ -290,6 +295,7 @@ var ProviderSet = wire.NewSet(
 	admin.NewAffiliateHandler,
 	admin.NewComplianceHandler,
 	admin.NewAuditLogHandler,
+	admin.NewGroupQualityCheckHandler,
 
 	// AdminHandlers and Handlers constructors
 	ProvideAdminHandlers,

@@ -140,6 +140,7 @@ export default {
     notFoundDescription: 'This legal document does not exist or has been removed by an administrator.',
     updatedAt: 'Updated: {date}',
     empty: 'No content',
+    navLabel: 'Legal & Policies',
     loginAgreement: 'Login Agreement',
     adminCompliance: 'Deployment and Operation Compliance Commitment',
     loginAgreementPrompt: {
@@ -171,6 +172,7 @@ export default {
     usage: 'Usage',
     redeem: 'Redeem',
     affiliate: 'Affiliate Rebates',
+    ipAllowlist: 'Access Allowlist',
     affiliateManagement: 'Affiliate Rebates',
     affiliateInviteRecords: 'Invite Records',
     affiliateRebateRecords: 'Rebate Records',
@@ -208,7 +210,6 @@ export default {
     channelPricing: 'Channel Pricing',
     channelMonitor: 'Channel Monitor',
     channelStatus: 'Channel Status',
-    ipAllowlist: 'IP allowlist',
     riskControl: 'Risk Control',
     securityAudit: 'Security Audit',
     contentModeration: 'Content Moderation',

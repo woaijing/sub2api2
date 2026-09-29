@@ -101,7 +101,7 @@ func TestEPUSDTCanonicalizesHTTPReturnURL(t *testing.T) {
 	_, err := prov.CreatePayment(context.Background(), payment.CreatePaymentRequest{
 		OrderID:   "order-http",
 		Amount:    "1",
-		ReturnURL: "http://51.222.42.218:17777/payment/result",
+		ReturnURL: "http://shop.example.test/payment/result",
 	})
 	require.NoError(t, err)
 	require.Equal(t, "https://shop.example.test/payment/result", received["redirect_url"])

@@ -918,7 +918,7 @@ export interface UpdateGroupRequest {
 // ==================== Account & Proxy Types ====================
 
 export type AccountPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity' | 'grok' | 'kimi' | 'zhipu' | 'deepseek' | 'minimax'
-export type AccountType = 'oauth' | 'setup-token' | 'apikey' | 'upstream' | 'bedrock' | 'service_account'
+export type AccountType = 'oauth' | 'setup-token' | 'apikey' | 'cloudflare' | 'upstream' | 'bedrock' | 'service_account'
 export type OAuthAddMethod = 'oauth' | 'setup-token'
 export type ProxyProtocol = 'http' | 'https' | 'socks5' | 'socks5h'
 
@@ -2400,10 +2400,12 @@ export interface ScheduledTestPlan {
   id: number
   account_id: number
   model_id: string
+  prompt_text: string
   cron_expression: string
   enabled: boolean
   max_results: number
   auto_recover: boolean
+  quality_check_enabled: boolean
   last_run_at: string | null
   next_run_at: string | null
   created_at: string
@@ -2425,18 +2427,22 @@ export interface ScheduledTestResult {
 export interface CreateScheduledTestPlanRequest {
   account_id: number
   model_id: string
+  prompt_text?: string
   cron_expression: string
   enabled?: boolean
   max_results?: number
   auto_recover?: boolean
+  quality_check_enabled?: boolean
 }
 
 export interface UpdateScheduledTestPlanRequest {
   model_id?: string
+  prompt_text?: string
   cron_expression?: string
   enabled?: boolean
   max_results?: number
   auto_recover?: boolean
+  quality_check_enabled?: boolean
 }
 
 // Payment types

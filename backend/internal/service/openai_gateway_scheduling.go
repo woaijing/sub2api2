@@ -87,11 +87,12 @@ func openAIRequestPayloadView(body []byte) gjson.Result {
 }
 
 // explicitOpenAIRequestSessionID extends the common OpenAI session signals
-// with Grok's native conversation header only for requests authenticated to a
-// Grok group. This keeps an unrelated x-grok-conv-id header from changing
-// scheduling or upstream session behavior for non-Grok groups.
+// with Grok's native conversation header only for Grok groups or grok-*
+// models. Smart-route keys keep an OpenAI primary group, so the requested
+// model family must count. Unrelated OpenAI traffic still ignores a spoofed
+// x-grok-conv-id.
 //
-// For Grok groups only, previous_response_id is a last-resort sticky seed so
+// For those Grok requests, previous_response_id is a last-resort sticky seed so
 // multi-turn Responses chains stay on the same OAuth account when no explicit
 // session/conversation/prompt_cache_key is present. Non-Grok groups omit this
 // so HTTP OpenAI paths that delete previous_response_id before upstream are
@@ -102,13 +103,13 @@ func explicitOpenAIRequestSessionID(c *gin.Context, body []byte) string {
 	}
 
 	sessionID := explicitOpenAIHeaderSessionID(c)
-	if sessionID == "" && isGrokRequestContext(c) {
+	if sessionID == "" && isGrokRequestContext(c, body) {
 		sessionID = strings.TrimSpace(c.GetHeader(grokConversationIDHeader))
 	}
 	if sessionID == "" && len(body) > 0 {
 		sessionID = strings.TrimSpace(openAIRequestPayloadView(body).Get("prompt_cache_key").String())
 	}
-	if sessionID == "" && isGrokRequestContext(c) && len(body) > 0 {
+	if sessionID == "" && isGrokRequestContext(c, body) && len(body) > 0 {
 		sessionID = grokPreviousResponseSessionSeed(body)
 	}
 	return sessionID
@@ -173,7 +174,7 @@ func (s *OpenAIGatewayService) GenerateSessionHash(c *gin.Context, body []byte) 
 		return ""
 	}
 
-	if isGrokRequestContext(c) {
+	if isGrokRequestContext(c, body) {
 		sessionID = grokStickyAffinitySeed(sessionID, body)
 	}
 
@@ -240,6 +241,15 @@ func (s *OpenAIGatewayService) BindStickySession(ctx context.Context, groupID *i
 		ttl = time.Duration(s.cfg.Gateway.OpenAIWS.StickySessionTTLSeconds) * time.Second
 	}
 	return s.setStickySessionAccountID(ctx, groupID, sessionHash, accountID, ttl)
+}
+
+// ClearStickySession drops the current session binding so a later admitted
+// account can replace a locally busy or failed sticky account.
+func (s *OpenAIGatewayService) ClearStickySession(ctx context.Context, groupID *int64, sessionHash string) {
+	if s == nil || strings.TrimSpace(sessionHash) == "" {
+		return
+	}
+	_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
 }
 
 // SelectAccount selects an OpenAI account with sticky session support
@@ -992,13 +1002,7 @@ func (s *OpenAIGatewayService) tryStickySessionHit(ctx context.Context, groupID 
 	}
 
 	account, err := s.getSchedulableAccount(ctx, accountID)
-	if err != nil {
-		return nil
-	}
-
-	// 检查账号是否需要清理粘性会话
-	// Check if sticky session should be cleared
-	if shouldClearStickySession(account, requestedModel) {
+	if err != nil || account == nil || shouldClearStickySession(account, requestedModel) {
 		_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
 		return nil
 	}
@@ -1238,45 +1242,41 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 		accountID := stickyAccountID
 		if accountID > 0 && !isExcluded(accountID) {
 			account, err := s.getSchedulableAccount(ctx, accountID)
-			if err == nil {
-				clearSticky := shouldClearStickySession(account, requestedModel)
-				if clearSticky {
+			if err != nil || account == nil || shouldClearStickySession(account, requestedModel) {
+				_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
+			} else if isOpenAICompatibleAccountEligibleForRequest(ctx, account, platform, requestedModel, false, requiredCapability) {
+				account = s.recheckSelectedOpenAIAccountFromDB(ctx, account, groupID, platform, requestedModel, requireCompact, requiredCapability)
+				if account == nil {
 					_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
-				}
-				if !clearSticky && isOpenAICompatibleAccountEligibleForRequest(ctx, account, platform, requestedModel, false, requiredCapability) {
-					account = s.recheckSelectedOpenAIAccountFromDB(ctx, account, groupID, platform, requestedModel, requireCompact, requiredCapability)
-					if account == nil {
-						_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
-					} else if !s.openAIAccountMatchesSchedulingGroup(account, groupID) {
-						_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
-					} else if s.isOpenAIAccountRequestRuntimeBlocked(account, requestedModel, requireCompact) {
-						_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
-					} else if needsUpstreamCheck && s.isUpstreamModelRestrictedByChannel(ctx, *groupID, account, requestedModel, requireCompact) {
-						_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
-					} else if !parentHealthyForShadow(account, s.parentAccountLookup(ctx)) {
-						_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
-					} else {
-						result, err := s.tryAcquireAccountSlot(ctx, accountID, account.Concurrency)
-						if err == nil && result != nil && result.Acquired {
-							selection, selectErr := s.newAcquiredSelectionResult(ctx, account, result.ReleaseFunc)
-							if selectErr != nil {
-								return nil, selectErr
-							}
-							_ = s.refreshStickySessionTTL(ctx, groupID, sessionHash, openaiStickySessionTTL)
-							return selection, nil
+				} else if !s.openAIAccountMatchesSchedulingGroup(account, groupID) {
+					_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
+				} else if s.isOpenAIAccountRequestRuntimeBlocked(account, requestedModel, requireCompact) {
+					_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
+				} else if needsUpstreamCheck && s.isUpstreamModelRestrictedByChannel(ctx, *groupID, account, requestedModel, requireCompact) {
+					_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
+				} else if !parentHealthyForShadow(account, s.parentAccountLookup(ctx)) {
+					_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
+				} else {
+					result, err := s.tryAcquireAccountSlot(ctx, accountID, account.Concurrency)
+					if err == nil && result != nil && result.Acquired {
+						selection, selectErr := s.newAcquiredSelectionResult(ctx, account, result.ReleaseFunc)
+						if selectErr != nil {
+							return nil, selectErr
 						}
-
-						waitingCount, _ := s.concurrencyService.GetAccountWaitingCount(ctx, accountID)
-						if waitingCount < cfg.StickySessionMaxWaiting {
-							return s.newSelectionResult(ctx, account, false, nil, &AccountWaitPlan{
-								AccountID:      accountID,
-								MaxConcurrency: account.Concurrency,
-								Timeout:        cfg.StickySessionWaitTimeout,
-								MaxWaiting:     cfg.StickySessionMaxWaiting,
-							})
-						}
-						stickySpillover = true
+						_ = s.refreshStickySessionTTL(ctx, groupID, sessionHash, openaiStickySessionTTL)
+						return selection, nil
 					}
+
+					waitingCount, _ := s.concurrencyService.GetAccountWaitingCount(ctx, accountID)
+					if waitingCount < cfg.StickySessionMaxWaiting {
+						return s.newSelectionResult(ctx, account, false, nil, &AccountWaitPlan{
+							AccountID:      accountID,
+							MaxConcurrency: account.Concurrency,
+							Timeout:        cfg.StickySessionWaitTimeout,
+							MaxWaiting:     cfg.StickySessionMaxWaiting,
+						})
+					}
+					stickySpillover = true
 				}
 			}
 		}

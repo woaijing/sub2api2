@@ -151,11 +151,11 @@ const displayBars = computed<TimelineBar[]>(() => {
   const real = [...props.buckets]
     .sort((a, b) => Date.parse(a.bucket_start) - Date.parse(b.bucket_start))
     .slice(-props.length)
-  const bars: TimelineBar[] = Array.from({ length: Math.max(0, props.length - real.length) }, (_, index) => ({
-    key: `empty-${index}`,
-    ...STATUS_STYLE.unknown,
-    title: '',
-  }))
+  // Missing slots sit at the right (NOW) end: the window is bucket-aligned so the
+  // trailing slot is the current partial bucket, which is the one that can be
+  // empty right after a refresh. Padding at the front would wrongly show the gap
+  // as old history and shift every real bar one slot to the past.
+  const bars: TimelineBar[] = []
 
   for (const bucket of real) {
     const state = bucket.health.overall === 'healthy' || bucket.health.overall === 'warning' || bucket.health.overall === 'critical'
@@ -178,6 +178,11 @@ const displayBars = computed<TimelineBar[]>(() => {
         ttft: formatMonitorMs(bucket.metrics.ttft.p50_ms),
       }),
     })
+  }
+
+  const missing = Math.max(0, props.length - real.length)
+  for (let index = 0; index < missing; index += 1) {
+    bars.push({ key: `empty-${index}`, ...STATUS_STYLE.unknown, title: '' })
   }
   return bars
 })
