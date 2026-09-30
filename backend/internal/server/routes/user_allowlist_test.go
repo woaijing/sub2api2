@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestUserAllowlistRoutesRemoved(t *testing.T) {
+func TestUserAllowlistRoutesReturnConfigurationError(t *testing.T) {
 	router, tokens, _ := ticketRouteEnvironment(t)
 	for _, route := range []struct {
 		method string
@@ -19,7 +19,7 @@ func TestUserAllowlistRoutesRemoved(t *testing.T) {
 	} {
 		t.Run(route.method, func(t *testing.T) {
 			response := ticketRouteRequest(router, route.method, route.path, tokens[7], "")
-			require.Equal(t, http.StatusNotFound, response.Code)
+			require.Equal(t, http.StatusServiceUnavailable, response.Code)
 		})
 	}
 }

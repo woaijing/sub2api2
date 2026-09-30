@@ -88,7 +88,11 @@ func ticketRouteEnvironment(t *testing.T) (*gin.Engine, map[int64]string, *ticke
 	auth := service.NewAuthService(nil, users, nil, nil, cfg, nil, nil, nil, nil, nil, nil, nil, nil)
 	userService := service.NewUserService(users, nil, nil, nil)
 	repo := &ticketRouteRepo{}
-	h := &handler.Handlers{Admin: &handler.AdminHandlers{}, Ticket: handler.NewTicketHandler(service.NewTicketService(repo, users))}
+	h := &handler.Handlers{
+		Admin:  &handler.AdminHandlers{},
+		User:   handler.NewUserHandler(userService, auth, nil, nil, nil, nil),
+		Ticket: handler.NewTicketHandler(service.NewTicketService(repo, users)),
+	}
 	r := gin.New()
 	v1 := r.Group("/api/v1")
 	audit := middleware.AuditLogMiddleware(func(c *gin.Context) { c.Next() })
